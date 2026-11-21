@@ -19,10 +19,10 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 - [x] 04 LMI, deployment & pdadmin
 
 ## Phase 2 — `feat/phase2-oauth-oidc`
-- [ ] 05 API protection definitions
-- [ ] 06 OAuth/OIDC clients & PKCE
-- [ ] 07 Metadata & JWKS discovery
-- [ ] 08 authsvc, mechanisms & policies
+- [x] 05 API protection definitions
+- [x] 06 OAuth/OIDC clients & PKCE
+- [x] 07 Metadata & JWKS discovery
+- [x] 08 authsvc, mechanisms & policies
 
 ## Phase 3 — `feat/phase3-custom-rules-stsuu`
 - [ ] 09 InfoMap & mapping rules (annotated JS)

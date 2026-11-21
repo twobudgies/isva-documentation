@@ -3,14 +3,131 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Metadata & JWKS Discovery — ISVA Docs</title>
+<title>07 · Metadata &amp; JWKS Discovery — ISVA Docs</title>
+<meta name="description" content="OIDC discovery metadata, JWKS public keys, key rotation and troubleshooting Akamai 403 and WebSEAL 302 blocks.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="07" data-stub="true">
+<body data-page="07">
 <main>
-<h1>07 · Metadata & JWKS Discovery</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>07 · Metadata &amp; JWKS Discovery</h1>
+<p class="lead">How <code>partner_portal_backend</code> learns where the endpoints are and which public key verifies a signature — and why a single misconfigured ACL or CDN rule on these two URLs breaks every login.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the phone book and the notary's stamp sample</div>
+<p><strong>Metadata</strong> (discovery) is a phone book entry published by <code>ciam</code>: “my authorize address is…, my token address is…, my name is…”. <strong>JWKS</strong> is the notary's <em>specimen stamp</em>: anybody may look at it to confirm that a document was truly stamped by <code>ciam</code>. Because these two documents are <strong>public by design</strong> and contain no secrets, they must be reachable without logging in — otherwise nobody can verify anything.</p></div>
+<ul>
+<li><code>/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test</code> — JSON document (OpenID Provider Configuration).</li>
+<li><code>/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test</code> — JSON Web Key Set (public keys only).</li>
+<li><strong>kid</strong> (key ID) in the token header selects the key; <strong>rotation</strong> publishes a new key alongside the old one.</li>
+</ul>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  BE[partner_portal_backend<br/>egress IP a.b.c.d] --> AK{Akamai<br/>allowlist}
+  AK -- allowed --> WS{WebSEAL ACL<br/>unauthenticated Tr?}
+  AK -- blocked --> X1[[403 errors.edgesuite.net]]
+  WS -- permitted --> RT[AAC runtime<br/>metadata + jwks]
+  WS -- denied --> X2[[302 to login / 403 HPDIA]]
+  RT --> OK[[200 JSON]]
+  OK --> CACHE[(Backend cache<br/>JWKS 1h, metadata 24h)]
+</pre>
+<figcaption>Figure 7.1 — Two gates must both be open</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — cache and refetch</div>
+Backends fetch metadata at start-up and JWKS on first use, then cache. When a token arrives with an <em>unknown</em> <code>kid</code>, a well-behaved library refetches the JWKS once (rate-limited). If the endpoint is blocked at that moment, <em>all new tokens</em> fail validation even though old ones still work — a classic delayed outage after key rotation.</div>
+
+<h2 id="low">3. Low-level technical sequence</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as partner_portal_backend
+  participant A as Akamai
+  participant W as WebSEAL
+  participant R as Runtime
+  B->>A: GET /mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test<br/>Accept: application/json
+  alt IP not allowlisted
+    A-->>B: 403 text/html "Access Denied" errors.edgesuite.net Reference #18.xx.xx
+  else pass
+    A->>W: GET (forwarded)
+    alt ACL: unauthenticated lacks T/r
+      W-->>B: 302 Location: /pkmslogin.form (or 403 HPDIA0..)
+    else ok
+      W->>R: GET /sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test
+      R-->>B: 200 {"issuer":"...","jwks_uri":"...","token_endpoint":"..."}
+    end
+  end
+  B->>A: GET /mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test
+  A->>W: forward
+  W->>R: forward
+  R-->>B: 200 {"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"k1","n":"...","e":"AQAB"}]}
+  B->>B: pick key where kid equals token header kid, verify signature
+</pre>
+<figcaption>Figure 7.2 — Discovery then key retrieval, with both failure modes</figcaption></figure>
+
+<h3>What a healthy response looks like</h3>
+<pre><code>{
+ "issuer": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test",
+ "authorization_endpoint": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/authorize",
+ "token_endpoint": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/token",
+ "jwks_uri": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test",
+ "response_types_supported": ["code"],
+ "subject_types_supported": ["public"],
+ "id_token_signing_alg_values_supported": ["RS256"],
+ "code_challenge_methods_supported": ["S256"]
+}
+# JWKS
+{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"k-2025-01","n":"0vx7...","e":"AQAB"}]}</code></pre>
+
+<h3>Key rotation procedure (overlap, never cut-over)</h3>
+<ol>
+<li>Create/import a new signing key pair in LMI (SSL Certificates → runtime keystore, e.g. <code>rt_profile_keys</code>; verify keystore name on your version) with a new label.</li>
+<li>Publish both keys in JWKS: add the new certificate to the definition's key configuration; deploy.</li>
+<li>Wait ≥ the longest backend JWKS cache TTL (e.g. 24 h) so every consumer has seen the new <code>kid</code>.</li>
+<li>Switch the definition to <em>sign</em> with the new key; old key stays published until all tokens signed with it expire.</li>
+<li>Remove the old key; deploy; monitor validation errors.</li>
+</ol>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>Metadata URL</td><td><code>https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test</code></td></tr>
+<tr><td>JWKS URL</td><td><code>https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test</code></td></tr>
+<tr><td>Consumer</td><td><code>partner_portal_backend</code> only (frontend should not need them)</td></tr>
+<tr><td>Gate 1</td><td>Akamai EdgeSuite IP allowlist — add backend egress IPs for these two paths</td></tr>
+<tr><td>Gate 2</td><td>WebSEAL ACL — attach <code>unauthenticated Tr</code> ACL to <code>/WebSEAL/isva-uat01-default/mga/sps/oauth/oauth20/metadata</code> and <code>…/jwks</code></td></tr>
+<tr><td>Known issue</td><td><code>issuer</code> returns <code>https://localhost/sps/oauth/oauth20/15</code> (Module 05)</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — “just allow all”</div>The right fix for a 403/302 is a <em>narrow</em> allow on exactly these URLs, not <code>any-other</code> permissions on <code>/mga</code> and not disabling the WAF. Metadata/JWKS are safe to publish; the rest of <code>/mga</code> is not.</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>403 HTML, <code>errors.edgesuite.net</code>, “Reference #”</td><td>Akamai WAF/IP rule</td>
+<td><pre><code>curl -s -o /dev/null -D - https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test
+curl -s https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test | grep -o 'Reference #[0-9.a-f]*'</code></pre></td><td>Run from the backend host (the egress IP matters). Provide Reference # to the Akamai team; allowlist the IP for the path.</td></tr>
+<tr><td>302 to <code>/pkmslogin.form</code> or a login page</td><td>WebSEAL ACL requires authentication</td>
+<td><pre><code>curl -sI https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test | egrep -i '^(HTTP|location)'</code></pre></td><td><code>pdadmin acl attach</code> a Tr-for-unauthenticated ACL on the two objects.</td></tr>
+<tr><td>200 but body is HTML</td><td>Login/error page returned with 200</td><td><code>curl -s … | head -c 200</code> (JSON starts with <code>{</code>)</td><td>Same ACL fix; check Akamai not rewriting.</td></tr>
+<tr><td>Intermittent “unknown kid”</td><td>Rotation without overlap, or two nodes with different keys</td>
+<td><pre><code>for i in 1 2 3 4 5 6; do curl -s https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test | jq -r '.keys[].kid' | sort | tr '\n' ' '; echo; done</code></pre></td><td>Sync keystores across nodes; keep both keys during rotation.</td></tr>
+<tr><td><code>jwks_uri</code> in metadata points to an internal host</td><td>Runtime external URL not configured</td><td><code>curl -s …/metadata/… | jq .jwks_uri</code></td><td>Set the external base URL / Provider ID.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>Both documents are always public and served by IBM: <code>https://&lt;tenant&gt;.verify.ibm.com/oidc/endpoint/default/.well-known/openid-configuration</code> and the <code>jwks_uri</code> it advertises. Key rotation is handled by the service; clients just honour cache headers and refetch on unknown <code>kid</code>.</div>
+<div class="table-wrap"><table>
+<tr><th>Legacy</th><th>Verify SaaS</th></tr>
+<tr><td><code>/metadata/PartnerLink_OIDC_Test</code></td><td><code>/oidc/endpoint/default/.well-known/openid-configuration</code></td></tr>
+<tr><td><code>/jwks/PartnerLink_OIDC_Test</code></td><td><code>/oidc/endpoint/default/jwks</code></td></tr>
+<tr><td>Manual keystore rotation</td><td>Managed signing keys (custom certificates possible)</td></tr>
+<tr><td>Akamai + WebSEAL gates</td><td>None required; only your egress firewall must allow outbound HTTPS to the tenant</td></tr>
+<tr><td><code>issuer</code> bug risk</td><td>Issuer fixed to tenant URL</td></tr>
+</table></div>
+<p>Next: <a href="08-authsvc-mechanisms-policies.html">Module 08 — authsvc, mechanisms &amp; policies</a>.</p>
 </main>
 </body>
 </html>

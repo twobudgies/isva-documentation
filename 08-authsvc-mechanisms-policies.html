@@ -3,14 +3,132 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>authsvc, Mechanisms & Policies — ISVA Docs</title>
+<title>08 · authsvc, Mechanisms &amp; Policies — ISVA Docs</title>
+<meta name="description" content="The ISVA Authentication Service (/mga/sps/authsvc): mechanisms, policies and orchestrating multi-step login workflows.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="08" data-stub="true">
+<body data-page="08">
 <main>
-<h1>08 · authsvc, Mechanisms & Policies</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>08 · Authentication Service: Mechanisms &amp; Policies</h1>
+<p class="lead">The <code>/mga/sps/authsvc</code> endpoint is where a login <em>begins</em> on <code>ciam</code>. It runs an <strong>authentication policy</strong> — an ordered set of steps, each performed by an <strong>authentication mechanism</strong> — and returns control to the OAuth flow when the user is authenticated.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — airport security lanes</div>
+<p>A <strong>mechanism</strong> is a single checkpoint: scan the passport, scan the bag, answer questions. A <strong>policy</strong> is the route a traveller takes through those checkpoints: “domestic: bag scan only; international: passport + bag + questions”. The <strong>authentication service</strong> is the traffic controller that sends each person to the next checkpoint and finally issues a “cleared” stamp.</p></div>
+<div class="table-wrap"><table>
+<tr><th>Mechanism type</th><th>What it does</th></tr>
+<tr><td>Username Password</td><td>Checks credentials against a registry</td></tr>
+<tr><td>One-Time Password (TOTP/HOTP/Email/SMS)</td><td>Second factor</td></tr>
+<tr><td>Knowledge Questions, FIDO2, Consent, EULA, Info Map…</td><td>Other factors/interactions</td></tr>
+<tr><td><strong>InfoMap</strong></td><td>Runs a custom JavaScript rule (Rhino) — used here to redirect to <code>csl</code> (<code>InfoMap_partnerLoginRedirect.js</code>)</td></tr>
+<tr><td>HTTP Redirect</td><td>Hands off to an external URL</td></tr>
+</table></div>
+<ul>
+<li><strong>Policy</strong>: ordered mechanisms; each step can <em>succeed</em>, <em>fail</em>, or <em>need another round-trip</em> (page shown to user / redirect).</li>
+<li><strong>State</strong>: the service keeps per-login state server-side (cookie-referenced) between redirects.</li>
+<li><strong>Result</strong>: a populated session with the user's identity attributes, ready for <code>/authorize</code> to mint a code.</li>
+</ul>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> Start: GET /mga/sps/authsvc?client=...
+  Start --> InfoMapRedirect: policy step 1 (InfoMap_partnerLoginRedirect.js)
+  InfoMapRedirect --> WaitUpstream: 302 to csl, state saved
+  WaitUpstream --> ValidateReturn: browser returns from csl
+  ValidateReturn --> Success: assertion valid
+  ValidateReturn --> Fail: invalid or replayed
+  Success --> Authorize: continue to /oauth/oauth20/authorize
+  Fail --> [*]
+  Authorize --> [*]
+</pre>
+<figcaption>Figure 8.1 — Authentication policy as a state machine</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — one endpoint, many entry styles</div>
+The same service has: <code>/authsvc?PolicyId=…</code> (browser flows), <code>/authsvc/policy/&lt;name&gt;</code> (named policy), and <code>/apiauthsvc</code> (JSON API for native apps). In this environment the OAuth <code>client</code> parameter on <code>/authsvc</code> selects the policy/behaviour through the InfoMap rule.</div>
+
+<h2 id="low">3. Low-level technical sequence — orchestrating a multi-step login</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant W as WebSEAL (/mga)
+  participant S as authsvc (runtime)
+  participant M as InfoMap rule
+  participant C as csl
+  U->>W: GET /mga/sps/authsvc?client=CID&scope=openid&state=789
+  W->>S: forward
+  activate S
+  S->>S: choose policy, create AUTHSVC state
+  S->>M: execute step 1 (request parameters in context)
+  activate M
+  M->>M: read client, scope, state, code_challenge
+  M->>M: create ciam-owned state2 + nonce2, store with session
+  M-->>S: redirect URL = csl /authb/login?... , status=redirect
+  deactivate M
+  S-->>U: 302 Location: https://csl.example.com/authb/login?appId=...&redirect_uri=ENCODED&state=state2<br/>Set-Cookie: PD-S-SESSION-ID, AUTHSVC session cookie
+  deactivate S
+  U->>C: GET /authb/login (user + password + MFA happen here)
+  C-->>U: 302 Location: https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/authorize?clientId=CID&state=state2 + upstream assertion
+  U->>W: GET /mga/sps/oauth/oauth20/authorize?...
+  W->>S: forward (session cookie)
+  activate S
+  S->>M: execute step 2 (validate upstream result)
+  alt state2 mismatch or assertion invalid
+    M-->>S: fail
+    S-->>U: 400/302 error, state cleared
+  else ok
+    M-->>S: success + attributes (uid, email, groups)
+    S-->>U: continue to authorization (code issued)
+  end
+  deactivate S
+</pre>
+<figcaption>Figure 8.2 — Detailed policy execution with an upstream hop</figcaption></figure>
+
+<h3>Building it in LMI (verify names on your firmware)</h3>
+<ol>
+<li><em>Secure Access Control → Policy → Mapping Rules</em>: add <code>InfoMap_partnerLoginRedirect.js</code> (type <strong>InfoMap</strong>).</li>
+<li><em>Authentication → Mechanisms</em>: create an <strong>InfoMap</strong> mechanism referencing that rule (e.g. <code>mech_partner_login_redirect</code>).</li>
+<li><em>Authentication → Policies</em>: create <code>partnerlink_login</code> with a single step using that mechanism, set as the policy for the OIDC flow.</li>
+<li>Deploy pending changes; test <code>https://test.partnerlink.enterprise.com/mga/sps/authsvc?PolicyId=urn:ibm:security:authentication:asf:partnerlink_login</code> (policy URN pattern <code>urn:ibm:security:authentication:asf:&lt;name&gt;</code>).</li>
+</ol>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Piece</th><th>This environment</th></tr>
+<tr><td>Entry (Step 1)</td><td><code>/mga/sps/authsvc?client=&lt;partner_portal_clientid&gt;&amp;scope=openid&amp;state=789</code></td></tr>
+<tr><td>Delegation (Step 2)</td><td>InfoMap rule redirects to <code>csl</code> <code>/authb/login?appId=27096415…</code></td></tr>
+<tr><td>Return (Step 4)</td><td><code>/mga/sps/oauth/oauth20/authorize?clientId=…&amp;scope=openid&amp;state=789</code></td></tr>
+<tr><td>Observed anti-pattern</td><td>Portal's <code>state=789</code> is forwarded unchanged to <code>csl</code> and back</td></tr>
+<tr><td>Observed anti-pattern</td><td>Nested URL: <code>/authb/login?appId=27096415/authorize?appId=123…</code> — two <code>?</code> and no encoding</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — state passthrough &amp; malformed nested URL</div>
+<p><strong>Finding #1/#3.</strong> <code>ciam</code> sits between two OAuth relationships (<code>portal↔ciam</code>, <code>ciam↔csl</code>). Each leg needs its <em>own</em> <code>state</code> (CSRF defence) and <code>nonce</code> (replay defence). Forwarding the portal's value lets an attacker who controls one leg influence the other. Also, a second <code>?</code> inside a URL value is parsed as part of the value or dropped depending on the parser; encode nested URLs: <code>redirect_uri=https%3A%2F%2F…%2Fauthorize%3FappId%3D123</code>.</p></div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>User bounces <code>/authsvc</code> → <code>csl</code> → <code>/authsvc</code> repeatedly</td><td>Session state cookie lost (cookie domain/Secure), or return URL points to <code>/authsvc</code> not <code>/authorize</code></td>
+<td><pre><code>curl -sIL "https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=1" | egrep -i '^(HTTP|location|set-cookie)'</code></pre></td><td>Fix cookies/URL; check HAR for second request's cookies.</td></tr>
+<tr><td><code>csl</code> shows “invalid parameter / appId”</td><td>Unencoded nested URL, double <code>?</code></td><td>Decode the <code>Location</code> header and look for two <code>?</code> characters</td><td>URL-encode the nested <code>redirect_uri</code> in the rule (<code>encodeURIComponent</code>, Module 09).</td></tr>
+<tr><td>Login works with someone else's <code>state</code></td><td>No per-leg state validation</td><td>Replay Step 4 with altered <code>state</code>; it should fail</td><td>Generate and verify <code>state2</code> in the rule.</td></tr>
+<tr><td>HTTP 500 at <code>/authsvc</code></td><td>Mechanism/rule JS error</td><td>Runtime trace (Module 04)</td><td>Fix rule; redeploy.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>Admin console → <strong>Authentication → Identity sources</strong> and <strong>Security → Access policies</strong>. Federated login to <code>csl</code> becomes an Identity Source of type OIDC or SAML; the redirect/state/nonce handling is performed by the service, not by your code.</div>
+<div class="table-wrap"><table>
+<tr><th>Legacy authsvc concept</th><th>Verify SaaS</th></tr>
+<tr><td>Authentication mechanism</td><td>Identity source / authentication method (password, OTP, FIDO2, passkeys)</td></tr>
+<tr><td>Authentication policy (steps)</td><td>Access policy rules (conditions → require MFA / allow / deny) and login flow</td></tr>
+<tr><td>InfoMap redirect to <code>csl</code></td><td>Identity source <em>OIDC/SAML federation</em> to <code>csl</code>; optional IdP discovery by domain</td></tr>
+<tr><td><code>/authsvc?PolicyId=</code></td><td><code>/oidc/endpoint/default/authorize</code> (policy evaluated by application)</td></tr>
+<tr><td>Per-leg <code>state</code>/<code>nonce</code></td><td>Handled automatically per federation leg</td></tr>
+</table></div>
+<p>Phase 2 complete. Next: <a href="09-infomap-mapping-rules.html">Module 09 — the JavaScript rules</a>.</p>
 </main>
 </body>
 </html>
