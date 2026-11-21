@@ -14,7 +14,7 @@ export const PAGES = [
   { id: '11', file: '11-end-to-end-7-step-flow.html', title: 'End-to-End 7-Step Flow', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
   { id: '12', file: '12-security-audit-hardening.html', title: 'Security Audit & Hardening', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
   { id: '13', file: '13-verify-saas-migration.html', title: 'Migration to Verify SaaS', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
-  { id: '14', file: '14-troubleshooting-har-playbook.html', title: 'Troubleshooting & HAR Playbook', phase: 'Operations', branch: 'feat/troubleshooting-and-qa', status: 'todo' },
+  { id: '14', file: '14-troubleshooting-har-playbook.html', title: 'Troubleshooting & HAR Playbook', phase: 'Operations', branch: 'feat/troubleshooting-and-qa', status: 'done' },
   { id: 'P', file: 'progress.html', title: 'Progress Tracker', phase: 'Operations', branch: 'feat/site-scaffold-and-nav', status: 'done' },
 ];
 
