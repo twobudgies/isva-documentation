@@ -108,7 +108,7 @@ figure.diagram{margin:16px 0}
 }
 
 /* Tables: JS (site.js tagTables) adds a layout class based on the first header */
-.table-wrap td code{overflow-wrap:break-word;word-break:normal}
+.table-wrap td code{overflow-wrap:anywhere;word-break:normal}
 .table-wrap td pre{word-break:break-all}
 .table-wrap td pre{margin:0;white-space:pre-wrap;font-size:.74rem;padding:8px 10px}
 .table-wrap td pre button{display:none}
@@ -183,3 +183,5 @@ main:focus{outline:none}
 .pagefoot a{color:var(--brand);text-decoration:none}.pagefoot a:hover{text-decoration:underline}
 .pagefoot p{margin:.4em 0;max-width:80ch}
 @media print{.pagefoot .links{display:none}}
+/* Wide tables scroll inside their wrapper on narrow screens instead of crushing columns */
+.table-wrap table:has(th:nth-child(5)){min-width:720px}

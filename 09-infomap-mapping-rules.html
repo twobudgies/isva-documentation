@@ -84,7 +84,100 @@ sequenceDiagram
   R3->>R3: write audit trace (no secrets)
   Z-->>U: 302 redirect_uri?code=...&state=789 (portal state restored)
 </pre>
-<figcaption>Figure 9.2 — Rule execution order inside one login</figcaption></figure>
+<figcaption>Figure 9.2 — Rule execution order on the front channel (steps 1–5). The same pre/post-token rules also run again on <code>/token</code>: see Figure 9.3.</figcaption></figure>
+
+<h3 id="rule-types">3.1 Every mapping-rule type in ISVA, and which ones this environment uses</h3>
+<p>“Mapping rule” is a family, not one thing. Each type hooks into a different part of the product and sees different objects. Knowing the family tells you where a behaviour <em>could</em> be hiding when something unexpected happens.</p>
+<div class="table-wrap"><table>
+<tr><th>Rule type</th><th>Configured under (LMI, verify names)</th><th>Runs when</th><th>Typical purpose</th><th>Here</th></tr>
+<tr><td><strong>InfoMap</strong> (authentication)</td><td>Secure Access Control → Policy → Mapping Rules, referenced by an InfoMap mechanism</td><td>During <code>/mga/sps/authsvc</code> when an authentication policy reaches an InfoMap step</td><td>Custom login logic, read request/session, redirect to another IdP</td><td>✅ <code>InfoMap_partnerLoginRedirect.js</code></td></tr>
+<tr><td><strong>OAuth pre-token generation</strong></td><td>API Protection → definition → Mapping rules</td><td>Just <em>before</em> ISVA creates an authorization code or tokens</td><td>Gate the request, add/filter claims and scopes, adjust lifetimes (acts on the STSUU)</td><td>✅ <code>partnerauthn_pre_token_generation.js</code></td></tr>
+<tr><td><strong>OAuth post-token generation</strong></td><td>API Protection → definition → Mapping rules</td><td>Just <em>after</em> the code/tokens are generated and stored</td><td>Audit logging, notifications, clean-up</td><td>✅ <code>partnerauthn_post_token_generation.js</code></td></tr>
+<tr><td><strong>Context-based access / risk</strong></td><td>Secure Access Control → Policy → Access Control / Risk Profiles</td><td>When WebSEAL asks the runtime to evaluate a POP-attached policy for a protected URL</td><td>Score device/IP/session risk, permit/deny, require step-up</td><td>➖ Not used today (no risk policy attached)</td></tr>
+<tr><td><strong>Federation STS</strong> (SAML 2.0 / OIDC partners)</td><td>Federation → Federations / Partners → Mapping rules</td><td>Inside the Security Token Service when an assertion/token is issued or consumed</td><td>Convert an upstream assertion or ID token into an STSUU (or the reverse)</td><td>➖ Not used: <code>csl</code> is reached by an InfoMap redirect, not configured as a federation partner</td></tr>
+<tr><td><strong>SCIM / user self-care</strong></td><td>Secure Access Control → Policy → Mapping Rules (self-care/SCIM types)</td><td>During registration, password reset or SCIM profile calls</td><td>Validate/transform user attributes before writing to the directory</td><td>➖ Not used: read-only brokered login</td></tr>
+</table></div>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — a design alternative worth knowing</div>
+Because <code>csl</code> is integrated through a hand-written InfoMap redirect, <em>your rule</em> is responsible for validating what comes back. If <code>csl</code> were registered as an OIDC (or SAML) <strong>federation partner</strong>, ISVA's Federation STS would validate the upstream ID token/assertion natively (signature, issuer, audience, nonce, state) and a small Federation mapping rule would only map attributes into the STSUU. That removes the riskiest custom code (the validation in 4.1). It is also the closest legacy analogue of the Verify SaaS <strong>Identity Source</strong> (<a href="13-verify-saas-migration.html">Module 13</a>).</div>
+<p>If you operate more than one client or definition, each can carry its own rule set following the same naming pattern; the types and hooks above are identical.</p>
+
+<h3 id="rule-order">3.2 Execution order: one login, five to six rule executions</h3>
+<p>The flow touches the rules in a fixed order. Note that the pre- and post-token rules fire <strong>twice</strong>: once on the front channel when the authorization code is created, and again on the back channel when the tokens are issued.</p>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>Step · endpoint</th><th>Rule that fires</th><th>Phase</th><th>What it does there</th></tr>
+<tr><td>1</td><td>1 → 2<br><code>/mga/sps/authsvc</code></td><td><code>InfoMap_partnerLoginRedirect.js</code></td><td>OUT</td><td>Validate client/scope/PKCE, create <code>state2</code>/<code>nonce2</code>, 302 to <code>csl</code></td></tr>
+<tr><td>1b</td><td>4 → 5<br><code>/authsvc</code> or <code>/authorize</code></td><td><code>InfoMap_partnerLoginRedirect.js</code></td><td>RETURN</td><td><em>Only if</em> the policy validates the return in a second InfoMap step (as the reference code in 4.1 does). If <code>csl</code> redirects straight to <code>/authorize</code> this execution does not happen and the validation must live elsewhere.</td></tr>
+<tr><td>2</td><td>4 → 5<br><code>/oauth/oauth20/authorize</code></td><td><code>partnerauthn_pre_token_generation.js</code></td><td>AUTHORIZE</td><td>Last check before the code is created; bind custom STSUU attributes to the grant</td></tr>
+<tr><td>3</td><td>5<br><code>/authorize</code> (code stored)</td><td><code>partnerauthn_post_token_generation.js</code></td><td>AUTHORIZE</td><td>Audit “code issued” (no code value in the log) before the 302 to the portal</td></tr>
+<tr><td>4</td><td>7<br><code>/oauth/oauth20/token</code></td><td><code>partnerauthn_pre_token_generation.js</code></td><td>TOKEN</td><td>Shape the final claims in <code>id_token</code>/<code>access_token</code>; check <code>code_verifier</code> is present</td></tr>
+<tr><td>5</td><td>7<br><code>/token</code> (tokens stored)</td><td><code>partnerauthn_post_token_generation.js</code></td><td>TOKEN</td><td>Audit “tokens issued”, clean-up</td></tr>
+</table></div>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant A as authsvc + InfoMap rule
+  participant C as csl
+  participant Z as authorize endpoint
+  participant T as token endpoint
+  participant R as pre/post-token rules
+  participant B as partner_portal_backend
+  U->>A: GET /mga/sps/authsvc?client=CID&scope=openid&state=789
+  A->>A: InfoMap rule (phase OUT): validate, state2, nonce2
+  A-->>U: 302 to csl /authb/login
+  U->>C: login + MFA
+  C-->>U: 302 to /authorize?...&state=state2
+  U->>Z: GET /mga/sps/oauth/oauth20/authorize
+  Z->>R: pre-token rule (phase AUTHORIZE)
+  Z->>Z: create + store authorization code
+  Z->>R: post-token rule (phase AUTHORIZE)
+  Z-->>U: 302 redirect_uri?code=...&state=789
+  U->>B: code (via partner_portal)
+  B->>T: POST /mga/sps/oauth/oauth20/token (code, client_secret, code_verifier)
+  T->>R: pre-token rule (phase TOKEN)
+  T->>T: sign + store id_token and access_token
+  T->>R: post-token rule (phase TOKEN)
+  T-->>B: 200 id_token + access_token
+</pre>
+<figcaption>Figure 9.3 — Where each rule fires across the 7 steps (front channel then back channel)</figcaption></figure>
+<div class="callout note"><div class="ttl">Verify on your appliance</div>That the pre- and post-token rules run on <em>both</em> <code>/authorize</code> and <code>/token</code>, and how a rule can tell the two apart, is how the project team described this deployment. It is plausible for the API Protection mapping-rule model but version-specific. Prove it with the trace test in 3.3 before relying on it.</div>
+
+<h3 id="rule-example">3.3 Worked example: tell the phases apart and prove the order with a trace</h3>
+<p>Because the same rule file runs in more than one phase, <strong>every check must be phase-aware</strong>. For example PKCE’s <code>code_challenge</code> exists only on <code>/authorize</code>; on <code>/token</code> the proof is <code>code_verifier</code>. A rule that demands a challenge unconditionally will reject every token exchange.</p>
+<pre><code>// Shared helpers (copy to the top of both token rules; or share via importMappingRule if your version supports it: VERIFY)
+var REQ = "urn:ibm:names:ITFIM:oauth:request:parameter";
+
+function p(name) {                       // first value of a request parameter, or null
+  var v = stsuu.getContextAttributes().getAttributeValueByNameAndType(name, REQ);
+  return (v != null &amp;&amp; v.length &gt; 0) ? String(v[0]) : null;
+}
+function phase() {                       // VERIFY: which parameters each endpoint carries on your version
+  if (p("grant_type") != null)    return "TOKEN";      // /token always carries grant_type
+  if (p("response_type") != null) return "AUTHORIZE";  // /authorize carries response_type
+  return "UNKNOWN";
+}
+function log(rule, extra) {              // one greppable line per execution, never secrets
+  IDMappingExtUtils.traceString("[" + rule + "] phase=" + phase() + " user=" + stsuu.getPrincipalName() +
+                                " client=" + p("client_id") + (extra ? " " + extra : ""));
+}</code></pre>
+<p>Add one <code>log(...)</code> line at the top of each of the three rules (the InfoMap rule logs <code>mode=OUT</code> / <code>mode=RETURN</code> in the same style), enable the runtime trace, perform <strong>one</strong> login, then read the order back:</p>
+<pre><code># on the appliance (LMI → application log files) or after downloading trace.log
+grep -E "\[(InfoMap_partnerLoginRedirect|pre-token|post-token)\]" trace.log
+
+# expected for one successful login (illustrative)
+10:15:01.120 [InfoMap_partnerLoginRedirect] mode=OUT client=&lt;partner_portal_clientid&gt; state=789 -&gt; redirect csl
+10:15:09.884 [pre-token]  phase=AUTHORIZE user=jdoe client=&lt;partner_portal_clientid&gt;
+10:15:09.901 [post-token] phase=AUTHORIZE user=jdoe client=&lt;partner_portal_clientid&gt; code issued
+10:15:10.402 [pre-token]  phase=TOKEN     user=jdoe client=&lt;partner_portal_clientid&gt; grant=authorization_code
+10:15:10.455 [post-token] phase=TOKEN     user=jdoe client=&lt;partner_portal_clientid&gt; tokens issued</code></pre>
+<div class="table-wrap"><table>
+<tr><th>What you see in the trace</th><th>Meaning</th><th>Action</th></tr>
+<tr><td>Five lines in the order above (six if a RETURN line appears)</td><td>The model on this page is correct for your version</td><td>Keep phase-aware rules as written</td></tr>
+<tr><td>No <code>phase=TOKEN</code> lines</td><td>Rules do not run on <code>/token</code> on your version</td><td>Do all claim shaping at <code>AUTHORIZE</code> (bound to the grant); drop the TOKEN-phase logic</td></tr>
+<tr><td><code>phase=UNKNOWN</code></td><td>Endpoints carry different parameters than assumed</td><td>Dump the request attributes once (<code>stsuu.toString()</code>, temporarily) and fix <code>phase()</code></td></tr>
+<tr><td>Token request fails with <code>pkce_required</code> or similar</td><td>A PKCE check ran in the TOKEN phase</td><td>Gate it to <code>AUTHORIZE</code> (see 4.2)</td></tr>
+</table></div>
 
 <h2 id="env">4. Environment deep dive — annotated code</h2>
 
@@ -159,54 +252,74 @@ if (state2 == null) {
 <div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall</div>Upstream identity must come from something the browser cannot forge: a signed assertion/ID token validated by <code>ciam</code>, or a server-to-server call to <code>csl</code>. A plain request header or query parameter set by the user is not proof of login.</div>
 
 <h3>4.2 <code>partnerauthn_pre_token_generation.js</code></h3>
+<p>Runs in <strong>both</strong> the AUTHORIZE and TOKEN phases (see 3.2), so each check states the phase it applies to.</p>
 <pre><code>// ===== partnerauthn_pre_token_generation.js (reference) =====
 importClass(Packages.com.tivoli.am.fim.trustserver.sts.utilities.IDMappingExtUtils);
 importClass(Packages.com.tivoli.am.fim.trustserver.sts.utilities.OAuthMappingExtUtils);   // VERIFY
 importClass(Packages.com.tivoli.am.fim.trustserver.sts.uuser.Attribute);                 // VERIFY
 
-var REQ = "urn:ibm:names:ITFIM:oauth:request:parameter";
+var REQ  = "urn:ibm:names:ITFIM:oauth:request:parameter";
 var RESP = "urn:ibm:names:ITFIM:oauth:response:attribute";
 
-var grant = stsuu.getContextAttributes().getAttributeValueByNameAndType("grant_type", REQ);
-var chall = stsuu.getContextAttributes().getAttributeValueByNameAndType("code_challenge", REQ);
-var cmeth = stsuu.getContextAttributes().getAttributeValueByNameAndType("code_challenge_method", REQ);
-var scope = stsuu.getContextAttributes().getAttributeValueByNameAndType("scope", REQ);
-
+function p(name) {                                   // first value or null (Java String[] -&gt; JS string)
+  var v = stsuu.getContextAttributes().getAttributeValueByNameAndType(name, REQ);
+  return (v != null &amp;&amp; v.length &gt; 0) ? String(v[0]) : null;
+}
+function phase() {                                   // VERIFY (see 3.3)
+  if (p("grant_type") != null)    return "TOKEN";
+  if (p("response_type") != null) return "AUTHORIZE";
+  return "UNKNOWN";
+}
 function deny(m) {
-  IDMappingExtUtils.traceString("pre-token DENY: " + m);
+  IDMappingExtUtils.traceString("[pre-token] DENY phase=" + phase() + " reason=" + m);
   OAuthMappingExtUtils.throwSTSCustomUserMessageException(m, 400);   // VERIFY signature
 }
 
-// 1. Defence in depth: PKCE even if /authsvc was bypassed
-if (grant == "authorization_code" || grant == null) {
-  if (chall == null || cmeth == null || cmeth.length == 0 || cmeth[0] != "S256") { deny("pkce_required"); }
+var ph = phase();
+IDMappingExtUtils.traceString("[pre-token] phase=" + ph + " user=" + stsuu.getPrincipalName() + " client=" + p("client_id"));
+
+// 1. PKCE: the challenge exists only on /authorize; on /token the proof is the verifier
+if (ph == "AUTHORIZE") {
+  if (p("code_challenge") == null || p("code_challenge_method") != "S256") { deny("pkce_required"); }
+} else if (ph == "TOKEN" &amp;&amp; p("grant_type") == "authorization_code") {
+  if (p("code_verifier") == null) { deny("code_verifier_required"); }
 }
-// 2. Scope allowlist (openid + profile only)
+
+// 2. Scope allowlist (openid + profile only), checked where scope is present
 var allowed = {"openid": 1, "profile": 1};
-if (scope != null &amp;&amp; scope.length &gt; 0) {
-  var parts = String(scope[0]).split(" ");
+var scope = p("scope");
+if (scope != null) {
+  var parts = scope.split(" ");
   for (var i = 0; i &lt; parts.length; i++) { if (!allowed[parts[i]]) { deny("scope_not_allowed:" + parts[i]); } }
 }
-// 3. Enrich: add a business claim from upstream attributes
-var partnerId = stsuu.getAttributeContainer().getAttributeValueByName("partnerId");
-if (partnerId != null &amp;&amp; partnerId.length &gt; 0) {
-  stsuu.addContextAttribute(new Attribute("partner_id", RESP, String(partnerId[0])));
+
+// 3. Enrich claims at the TOKEN phase (where the final tokens are shaped); VERIFY if your version needs AUTHORIZE
+if (ph == "TOKEN") {
+  var partnerId = stsuu.getAttributeContainer().getAttributeValueByName("partnerId");
+  if (partnerId != null &amp;&amp; partnerId.length &gt; 0) {
+    stsuu.addContextAttribute(new Attribute("partner_id", RESP, String(partnerId[0])));
+  }
 }
 // 4. NEVER copy secrets/passwords/raw upstream tokens into claims.</code></pre>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — the phase bug</div>An earlier draft of this rule demanded <code>code_challenge</code> unconditionally. If the rule also runs on <code>/token</code>, that rejects every token exchange with <code>pkce_required</code> even though the login was fine. Always branch on the phase before applying a check that only makes sense in one of them.</div>
 
 <h3>4.3 <code>partnerauthn_post_token_generation.js</code></h3>
 <pre><code>// ===== partnerauthn_post_token_generation.js (reference) =====
 importClass(Packages.com.tivoli.am.fim.trustserver.sts.utilities.IDMappingExtUtils);
 
+var REQ = "urn:ibm:names:ITFIM:oauth:request:parameter";
+function p(name) {
+  var v = stsuu.getContextAttributes().getAttributeValueByNameAndType(name, REQ);
+  return (v != null &amp;&amp; v.length &gt; 0) ? String(v[0]) : null;
+}
 try {
-  var user = stsuu.getPrincipalName();
-  var cid  = stsuu.getContextAttributes().getAttributeValueByNameAndType(
-               "client_id", "urn:ibm:names:ITFIM:oauth:request:parameter");
-  // audit line: WHO, WHICH CLIENT, WHEN. Do NOT log codes, tokens, secrets.
-  IDMappingExtUtils.traceString("AUDIT token_issued user=" + user + " client=" + (cid ? cid[0] : "?") +
-                                " ts=" + new Date().toISOString());
+  var ph = (p("grant_type") != null) ? "TOKEN" : (p("response_type") != null ? "AUTHORIZE" : "UNKNOWN");   // VERIFY
+  // audit line: WHO, WHICH CLIENT, WHICH PHASE, WHEN. Do NOT log codes, tokens, secrets.
+  IDMappingExtUtils.traceString("[post-token] phase=" + ph + " user=" + stsuu.getPrincipalName() +
+      " client=" + p("client_id") + " " + (ph == "AUTHORIZE" ? "code issued" : "tokens issued") +
+      " ts=" + new Date().toISOString());
 } catch (e) {
-  IDMappingExtUtils.traceString("post-token audit error: " + e);   // never break issuance for logging
+  IDMappingExtUtils.traceString("[post-token] audit error: " + e);   // never break issuance for logging
 }</code></pre>
 
 <h3>Debugging tips</h3>
@@ -224,6 +337,7 @@ try {
 <td><pre><code>curl -sI "https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=1" | grep -i ^location | grep -o '?' | wc -l   # expect 1 in the outer URL</code></pre></td><td>Encode every nested value (code above).</td></tr>
 <tr><td>Replay of Step 4 succeeds twice</td><td>state2 not cleared after use</td><td>Re-request the same <code>/authorize</code> URL</td><td>Null the session value on success/failure.</td></tr>
 <tr><td>Custom claim missing from <code>id_token</code></td><td>Wrong attribute <em>type</em> in <code>addContextAttribute</code></td><td>Decode token and compare to trace of stsuu</td><td>Use the response/id-token claim attribute type from IBM docs for your version.</td></tr>
+<tr><td>Every token exchange fails with <code>pkce_required</code> (login itself worked)</td><td>Pre-token rule also runs on <code>/token</code> and checks <code>code_challenge</code> there</td><td>Trace: <code>[pre-token] DENY phase=TOKEN reason=pkce_required</code>; <code>grep "\[pre-token\]" trace.log</code></td><td>Branch on phase: require the challenge only at AUTHORIZE, the verifier at TOKEN (4.2).</td></tr>
 <tr><td>Rule change “does nothing”</td><td>Not deployed</td><td><code>GET /isam/pending_changes</code></td><td>Deploy (Module 04).</td></tr>
 </table></div>
 
