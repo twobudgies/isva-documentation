@@ -106,3 +106,19 @@ figure.diagram{margin:16px 0}
   .pager{flex-direction:column}
   h1{font-size:1.6rem}
 }
+
+/* Multi-column playbook tables: fixed, predictable column widths; code wraps inside cells */
+.table-wrap table:has(th:nth-child(4)){table-layout:fixed;min-width:760px}
+.table-wrap table:has(th:nth-child(4)) th:nth-child(1){width:20%}
+.table-wrap table:has(th:nth-child(4)) th:nth-child(2){width:22%}
+.table-wrap table:has(th:nth-child(4)) th:nth-child(3){width:36%}
+.table-wrap table:has(th:nth-child(4)) th:nth-child(4){width:22%}
+.table-wrap table:has(th:nth-child(5)){min-width:900px}
+.table-wrap table:has(th:nth-child(5)) th:nth-child(1){width:6%}
+.table-wrap table:has(th:nth-child(5)) th:nth-child(2){width:16%}
+.table-wrap table:has(th:nth-child(5)) th:nth-child(3){width:30%}
+.table-wrap table:has(th:nth-child(5)) th:nth-child(4){width:24%}
+.table-wrap table:has(th:nth-child(5)) th:nth-child(5){width:24%}
+.table-wrap td pre{margin:0;white-space:pre-wrap;word-break:break-all;font-size:.74rem;padding:8px 10px}
+.table-wrap td pre button{display:none}
+.table-wrap td{overflow-wrap:anywhere;word-break:normal}
