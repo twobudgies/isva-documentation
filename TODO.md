@@ -36,3 +36,8 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 ## Phase 5 — `feat/troubleshooting-and-qa`
 - [x] 14 Troubleshooting & HAR playbook
 - [x] Final QA: all hrefs, Mermaid syntax, sidebar state, responsive layout across 16 HTML files (scripts/verify.mjs + scripts/render-check.sh)
+
+## Phase 6 — UX & reference (`feat/ux-*`, `feat/ref-glossary-cheatsheet`)
+- [x] Diagrams scale to column + click-to-expand, heading anchors, reading bar, back-to-top, print CSS
+- [x] Full-text search with snippets; per-page objectives, prerequisites, reading time, key takeaways
+- [x] Glossary (A–Z) and Quick Reference pages; "Choose your path" on the overview

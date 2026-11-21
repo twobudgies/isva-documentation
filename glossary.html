@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glossary — ISVA Docs</title>
+<meta name="description" content="A–Z glossary of IAM, OAuth/OIDC and IBM Security Verify Access terms used across this site.">
+<link rel="stylesheet" href="assets/site.css">
+<script type="module" src="assets/site.js"></script>
+<style>
+ .gl-filter{width:100%;max-width:420px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font-size:1rem}
+ dl.gl dt{font-weight:700;margin-top:1.1em;font-size:1.02rem}
+ dl.gl dd{margin:.2em 0 0;color:var(--ink)}
+ dl.gl dd small{display:block;color:var(--muted);margin-top:.2em}
+ .az a{display:inline-block;padding:2px 8px;border:1px solid var(--line);border-radius:6px;margin:2px;text-decoration:none;background:var(--panel)}
+ .gl-item.hide{display:none}
+</style>
+</head>
+<body data-page="G">
+<main>
+<h1>Glossary</h1>
+<p class="lead">Every acronym and concept used on this site, in plain English, with a pointer to where it is explained in depth.</p>
+<input class="gl-filter" id="glFilter" type="search" placeholder="Filter terms… (e.g. jwks, acl, nonce)" aria-label="Filter glossary">
+<h2 id="terms">Terms</h2>
+<dl class="gl" id="glList">
+<div class="gl-item"><dt id="aac">AAC — Advanced Access Control</dt><dd>The ISVA module that adds risk-based access, OAuth/OIDC provider and the authentication service on top of WebSEAL.<small>See <a href="03-aac-federation-runtime.html">Module 03</a></small></dd></div>
+<div class="gl-item"><dt id="access-token">Access token</dt><dd>A short-lived credential an API accepts as proof that a client may act for a user. Format may be opaque or a JWT.<small><a href="01-iam-oidc-foundations.html">Module 01</a>, <a href="05-api-protection-definitions.html">05</a></small></dd></div>
+<div class="gl-item"><dt id="acl">ACL — Access Control List</dt><dd>In WebSEAL: who (user, group, <code>unauthenticated</code>, <code>any-other</code>) may do what (<code>T r x m …</code>) on an object in the protected object space. Inherited downward unless overridden.<small><a href="02-webseal-junctions.html">Module 02</a></small></dd></div>
+<div class="gl-item"><dt id="akamai">Akamai EdgeSuite</dt><dd>The CDN/WAF in front of WebSEAL. Applies IP allowlists, bot and WAF rules. Block pages reference <code>errors.edgesuite.net</code> and a <code>Reference #</code>.<small><a href="02-webseal-junctions.html">Module 02</a>, <a href="07-metadata-jwks-discovery.html">07</a></small></dd></div>
+<div class="gl-item"><dt id="api-protection">API Protection Definition</dt><dd>The server-side rulebook for an OAuth/OIDC authorization server in ISVA: grants, lifetimes, issuer, keys, mapping rules, clients. Here: <code>PartnerLink_OIDC_Test</code>.<small><a href="05-api-protection-definitions.html">Module 05</a></small></dd></div>
+<div class="gl-item"><dt id="authn-authz">Authentication vs Authorization</dt><dd>AuthN: proving who you are. AuthZ: deciding what you may do.<small><a href="01-iam-oidc-foundations.html">Module 01</a></small></dd></div>
+<div class="gl-item"><dt id="authsvc">authsvc — Authentication Service</dt><dd>The runtime endpoint <code>/mga/sps/authsvc</code> that executes authentication policies made of mechanisms.<small><a href="08-authsvc-mechanisms-policies.html">Module 08</a></small></dd></div>
+<div class="gl-item"><dt id="authz-code">Authorization code</dt><dd>A short-lived, single-use value returned through the browser and exchanged by the backend at <code>/token</code> for tokens.<small><a href="11-end-to-end-7-step-flow.html">Module 11</a></small></dd></div>
+<div class="gl-item"><dt id="back-channel">Back channel / Front channel</dt><dd>Front channel: messages relayed by the browser through redirects (visible, tamperable). Back channel: direct server-to-server TLS, where secrets may travel.<small><a href="01-iam-oidc-foundations.html">Module 01</a></small></dd></div>
+<div class="gl-item"><dt id="broker">Identity broker</dt><dd>A server that authenticates users by delegating to another identity provider and then issues its own tokens. Here <code>ciam</code> brokers <code>csl</code>.<small><a href="01-iam-oidc-foundations.html">Module 01</a></small></dd></div>
+<div class="gl-item"><dt id="cba">CBA — Context-Based Access</dt><dd>Policy decisions using request context (IP, device, geo, risk score) that can permit, deny or require step-up.<small><a href="03-aac-federation-runtime.html">Module 03</a></small></dd></div>
+<div class="gl-item"><dt id="ciam">ciam</dt><dd>Placeholder name for the identity broker / authorization server running on ISVA.</dd></div>
+<div class="gl-item"><dt id="client">Client (relying party)</dt><dd>An application registered with an authorization server. Confidential clients keep a secret; public clients cannot.<small><a href="06-oauth-oidc-clients.html">Module 06</a></small></dd></div>
+<div class="gl-item"><dt id="client-secret">client_secret</dt><dd>Password of a confidential client, sent only on the back channel. Store in a vault; rotate.</dd></div>
+<div class="gl-item"><dt id="code-verifier">code_verifier / code_challenge</dt><dd>PKCE pair. Challenge = BASE64URL(SHA-256(verifier)). Challenge goes on the authorize request, verifier on the token request.<small><a href="06-oauth-oidc-clients.html">Module 06</a></small></dd></div>
+<div class="gl-item"><dt id="csl">csl</dt><dd>Placeholder name for the upstream identity provider that performs password + MFA.</dd></div>
+<div class="gl-item"><dt id="discovery">Discovery (metadata)</dt><dd>A public JSON document listing issuer, endpoints and supported features of an OpenID provider.<small><a href="07-metadata-jwks-discovery.html">Module 07</a></small></dd></div>
+<div class="gl-item"><dt id="har">HAR</dt><dd>HTTP Archive: a browser recording of requests/responses, used to debug redirects and cookies. Contains secrets, so sanitize it.<small><a href="14-troubleshooting-har-playbook.html">Module 14</a></small></dd></div>
+<div class="gl-item"><dt id="id-token">ID token</dt><dd>A JWT issued by an OpenID provider asserting who authenticated, when and how (<code>iss sub aud exp iat nonce acr amr</code>).</dd></div>
+<div class="gl-item"><dt id="infomap">InfoMap</dt><dd>An authentication mechanism type that runs a JavaScript rule. <code>InfoMap_partnerLoginRedirect.js</code> redirects to <code>csl</code>.<small><a href="09-infomap-mapping-rules.html">Module 09</a></small></dd></div>
+<div class="gl-item"><dt id="iss">iss (issuer)</dt><dd>JWT claim naming who minted the token. Must equal the issuer the relying party expects. In ISVA it comes from the Provider ID.<small><a href="05-api-protection-definitions.html">Module 05</a></small></dd></div>
+<div class="gl-item"><dt id="iv-headers">iv-user / iv-creds</dt><dd>HTTP headers WebSEAL injects across a junction: the user name and a Base64 credential blob.<small><a href="02-webseal-junctions.html">Module 02</a></small></dd></div>
+<div class="gl-item"><dt id="junction">Junction</dt><dd>A mapping from a WebSEAL URL prefix (e.g. <code>/mga</code>) to a back-end server.<small><a href="02-webseal-junctions.html">Module 02</a></small></dd></div>
+<div class="gl-item"><dt id="jwks">JWKS</dt><dd>JSON Web Key Set: the issuer's public signing keys, selected by <code>kid</code>.<small><a href="07-metadata-jwks-discovery.html">Module 07</a></small></dd></div>
+<div class="gl-item"><dt id="jwt">JWT</dt><dd>JSON Web Token: <code>header.payload.signature</code>, Base64URL-encoded and signed (readable by anyone).<small><a href="01-iam-oidc-foundations.html">Module 01</a></small></dd></div>
+<div class="gl-item"><dt id="kid">kid</dt><dd>Key ID in a JWT header identifying which JWKS key verifies the signature.</dd></div>
+<div class="gl-item"><dt id="lmi">LMI — Local Management Interface</dt><dd>Admin web console and REST API of the appliance (port 9443). Changes are staged until deployed.<small><a href="04-lmi-deployment-ops.html">Module 04</a></small></dd></div>
+<div class="gl-item"><dt id="mapping-rule">Mapping rule</dt><dd>Server-side JavaScript (Rhino) hook that customises authentication or token generation.<small><a href="09-infomap-mapping-rules.html">Module 09</a></small></dd></div>
+<div class="gl-item"><dt id="mfa">MFA / step-up</dt><dd>Requiring an additional factor, either at login or when a sensitive resource demands stronger assurance.</dd></div>
+<div class="gl-item"><dt id="nonce">nonce</dt><dd>Random value tied to an authentication request and copied into the ID token to prevent replay.</dd></div>
+<div class="gl-item"><dt id="oauth">OAuth 2.0</dt><dd>Framework for delegated authorization using tokens.</dd></div>
+<div class="gl-item"><dt id="oidc">OIDC — OpenID Connect</dt><dd>Identity layer on OAuth 2.0 adding the ID token, <code>openid</code> scope, <code>/userinfo</code> and discovery.</dd></div>
+<div class="gl-item"><dt id="pdadmin">pdadmin</dt><dd>CLI of the policy server for junctions, ACLs, POPs and the object space.<small><a href="04-lmi-deployment-ops.html">Module 04</a></small></dd></div>
+<div class="gl-item"><dt id="pd-s-session-id">PD-S-SESSION-ID</dt><dd>WebSEAL session cookie: an opaque handle to a server-side session.</dd></div>
+<div class="gl-item"><dt id="pkce">PKCE</dt><dd>Proof Key for Code Exchange: binds an authorization code to the client that requested it. Require <code>S256</code>.<small><a href="06-oauth-oidc-clients.html">Module 06</a></small></dd></div>
+<div class="gl-item"><dt id="pop">POP — Policy of Protection</dt><dd>Extra conditions on an object: IP restrictions, time of day, quality of protection, audit level, step-up attributes.</dd></div>
+<div class="gl-item"><dt id="pos">POS — Protected Object Space</dt><dd>The tree of objects WebSEAL protects, to which ACLs and POPs attach.</dd></div>
+<div class="gl-item"><dt id="provider-id">Provider ID</dt><dd>The issuer identifier configured on an API Protection Definition; becomes <code>iss</code>.</dd></div>
+<div class="gl-item"><dt id="redirect-uri">redirect_uri</dt><dd>Pre-registered callback where the authorization code is delivered; must match exactly.</dd></div>
+<div class="gl-item"><dt id="refresh-token">Refresh token</dt><dd>Long-lived credential used to obtain new access tokens without user interaction. Rotate and protect.</dd></div>
+<div class="gl-item"><dt id="rhino">Rhino</dt><dd>Java-based JavaScript engine (ES5) used for ISVA mapping rules.</dd></div>
+<div class="gl-item"><dt id="ropc">ROPC</dt><dd>Resource Owner Password Credentials grant: the app collects the password. Deprecated and insecure; disable.<small><a href="05-api-protection-definitions.html">Module 05</a></small></dd></div>
+<div class="gl-item"><dt id="scope">scope</dt><dd>Space-separated list of permissions requested; <code>openid</code> turns OAuth into OIDC.</dd></div>
+<div class="gl-item"><dt id="state">state</dt><dd>Random value echoed back unchanged to bind a response to its request (CSRF defence). Each OAuth leg needs its own.<small><a href="12-security-audit-hardening.html">Module 12</a></small></dd></div>
+<div class="gl-item"><dt id="stsuu">STSUU</dt><dd>Security Token Service Universal User: XML/JS structure with Principal, AttributeList and ContextAttributes, carried through token rules.<small><a href="10-stsuu-session-claims.html">Module 10</a></small></dd></div>
+<div class="gl-item"><dt id="tenant">Tenant</dt><dd>Your private instance of IBM Security Verify: <code>https://&lt;tenant&gt;.verify.ibm.com</code>.<small><a href="13-verify-saas-migration.html">Module 13</a></small></dd></div>
+<div class="gl-item"><dt id="webhook">Webhook</dt><dd>An HTTPS callback from Verify to a service you host (pre-token enrichment, event notification).</dd></div>
+<div class="gl-item"><dt id="webseal">WebSEAL</dt><dd>ISVA's reverse proxy: TLS termination, sessions, ACL/POP enforcement, junctions.<small><a href="02-webseal-junctions.html">Module 02</a></small></dd></div>
+</dl>
+<div class="callout note" id="glEmpty" style="display:none"><div class="ttl">No matching terms</div>Try a shorter word, or use the site search (<code>/</code>).</div>
+<script>
+(function(){var f=document.getElementById('glFilter'),items=[].slice.call(document.querySelectorAll('.gl-item')),e=document.getElementById('glEmpty');
+f.addEventListener('input',function(){var q=f.value.toLowerCase().trim(),n=0;items.forEach(function(i){var h=!q||i.textContent.toLowerCase().indexOf(q)>-1;i.classList.toggle('hide',!h);if(h)n++;});e.style.display=n?'none':'block';});})();
+</script>
+</main>
+</body>
+</html>
