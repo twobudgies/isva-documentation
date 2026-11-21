@@ -44,7 +44,7 @@ function buildSidebar() {
   const sb = el('nav', { id: 'sidebar', 'aria-label': 'Documentation navigation' });
   sb.innerHTML = `<a class="brand" href="index.html">ISVA → Verify SaaS Docs</a>
     <div class="sub">Zero-to-hero CIAM / brokered OIDC guide</div>
-    <input type="search" id="navFilter" placeholder="Filter pages & topics…" aria-label="Filter navigation">`;
+    <input type="search" id="navFilter" placeholder="Search all pages…  ( / )" aria-label="Filter navigation">`;
   const groups = [...new Set(PAGES.map(p => p.phase))];
   for (const g of groups) {
     const h = el('h4', { 'data-group': g }, g); sb.append(h);
@@ -76,6 +76,44 @@ function buildTopbar() {
   document.querySelector('main').addEventListener('click', () => document.body.classList.remove('menu-open'));
 }
 
+
+// Per-page learning aids rendered automatically (objectives, prerequisites, takeaways).
+const AIDS = {
+  '01': { learn: ['Tell authentication from authorization', 'Read an OAuth 2.0 / OIDC flow and a JWT', 'Explain JWKS and why backends fetch public keys', 'Describe what an identity broker does'], prereq: 'None. Start here.', take: ['AuthN = who you are, AuthZ = what you may do; OIDC adds identity on top of OAuth 2.0.', 'A JWT is signed, not encrypted: never put secrets in claims.', 'The code travels via the browser, the tokens only on the back channel.', 'Validate iss, aud, exp, nonce and signature (via JWKS) on every token.'] },
+  '02': { learn: ['Trace a request Akamai → WebSEAL → /mga → runtime', 'Know which layer returns 403 vs 302', 'Read and set ACLs with pdadmin', 'Understand PD-S-SESSION-ID and iv-user / iv-creds'], prereq: 'Module 01', take: ['Two gates protect every public URL: Akamai (network) then WebSEAL (identity/object).', 'Attach ACLs to the exact object (/metadata, /jwks); ACLs inherit downward.', 'iv-user / iv-creds are injected by the junction, never trust them from the internet.', 'LMI :9443 must never be reachable through Akamai.'] },
+  '03': { learn: ['Locate the AAC / federation runtime and its endpoints', 'Explain context-based access and obligations', 'Understand why config is a deployed snapshot'], prereq: 'Modules 01–02', take: ['WebSEAL is the gatekeeper; the AAC runtime (Liberty) is the decision maker.', 'Step-up is an obligation returned by a policy, executed via /authsvc.', 'MFA only at csl means ciam must verify the upstream assertion.'] },
+  '04': { learn: ['Use LMI safely: stage, deploy, snapshot', 'Turn runtime tracing on and off', 'Run the essential pdadmin checks'], prereq: 'Modules 02–03', take: ['Nothing is live until Deploy Pending Changes.', 'Take a snapshot before every change; roll back if tests fail.', 'Trace logs contain PII and tokens: enable briefly, then purge.'] },
+  '05': { learn: ['Read an API Protection Definition', 'Choose safe grant types and token lifetimes', 'Fix the localhost Provider ID (iss)'], prereq: 'Modules 01, 03', take: ['The Provider ID becomes iss; it must equal the external URL.', 'Disable ROPC and Implicit; keep Authorization Code (+PKCE).', 'Changing iss needs a coordinated cut-over with every relying party.'] },
+  '06': { learn: ['Register a confidential client correctly', 'Enforce exact redirect_uri matching', 'Generate and verify a PKCE S256 pair'], prereq: 'Module 05', take: ['client_secret authenticates the backend; PKCE binds the code to the login.', 'redirect_uri must match exactly: no wildcards or prefixes.', 'Reject code_challenge_method=plain.'] },
+  '07': { learn: ['Fetch and read metadata and JWKS', 'Rotate keys without outages', 'Distinguish Akamai 403 from WebSEAL 302'], prereq: 'Modules 02, 05', take: ['Metadata and JWKS are public by design: open exactly those two paths.', 'Rotate with overlap: publish both keys, wait for caches, then switch.', 'Run curl from the backend host: egress IP matters for Akamai.'] },
+  '08': { learn: ['Explain mechanisms vs policies', 'Follow a multi-step login through authsvc', 'Spot the state-passthrough and nested-URL flaws'], prereq: 'Modules 03, 06', take: ['A policy is an ordered list of mechanisms; InfoMap runs custom JavaScript.', 'Each OAuth leg needs its own state and nonce.', 'Encode nested URLs: exactly one ? per URL.'] },
+  '09': { learn: ['Read the three Rhino rules line by line', 'Know what each rule may read and write', 'Apply the audit fixes in code'], prereq: 'Modules 08, 10 (STSUU)', take: ['Rules run with runtime privileges: treat all input as hostile and fail closed.', 'Rhino is ES5: no let/const/arrow functions.', 'Generate state2 / nonce2 with SecureRandom and clear them after use.'] },
+  '10': { learn: ['Describe the three parts of an STSUU', 'Trace a claim from login to id_token', 'Add a custom claim safely'], prereq: 'Module 09', take: ['Principal → sub; AttributeList → user claims; ContextAttributes → request data.', 'Claim missing from the token is usually a mapping/type problem.', 'Use an explicit claim allowlist.'] },
+  '11': { learn: ['Walk all 7 steps with exact URLs, cookies and headers', 'Know what to check in a HAR at each step', 'See the target flow on Verify SaaS'], prereq: 'Modules 01–10', take: ['Steps 1–5 are front channel; step 7 is the only back-channel call.', 'Three independent cookie jars: ciam, csl, portal.', 'Each hop is a place where state, PKCE and encoding can break.'] },
+  '12': { learn: ['Understand the five audit findings and their attacks', 'Apply each fix and prove it with a test', 'Use the Akamai / WebSEAL ACL matrix'], prereq: 'Modules 06–11', take: ['Fix order: iss + ROPC, PKCE, state/nonce, encoding, then edge/ACL.', 'Every fix has a curl test; keep the tests as regression checks.', 'Least privilege on /mga: open only what must be public.'] },
+  '13': { learn: ['Map every legacy component to Verify SaaS', 'Replace the JS rules with configuration and webhooks', 'Plan a pilot with instant rollback'], prereq: 'Modules 01–12', take: ['The portal change is mostly configuration: issuer, client credentials, endpoints.', 'Keep sub stable or users will duplicate.', 'Run both issuers in parallel during the pilot.'] },
+  '14': { learn: ['Triage failures by layer', 'Read a HAR with jq', 'Run the 10-point curl verification suite'], prereq: 'Any module', take: ['Identify the layer first: edge, WebSEAL, runtime, rule, validation.', 'Sanitize HARs before sharing; treat seen tokens as compromised.', 'Run the curl suite from the backend host.'] },
+  'G': { learn: ['Look up any term used on this site'], prereq: 'None', take: [] },
+  'Q': { learn: ['Find endpoints, headers, errors and commands fast'], prereq: 'None', take: [] },
+};
+
+function words() { return (document.querySelector('main').innerText || '').split(/\s+/).length; }
+
+function buildAids() {
+  const a = AIDS[cur.id]; const main = document.querySelector('main'); if (!a) return;
+  const mins = Math.max(2, Math.round(words() / 200));
+  const toc = document.getElementById('toc');
+  if (toc && a.learn.length) {
+    const box = el('div', { class: 'glance' }, `<div class="g-col"><b>🎯 You will learn</b><ul>${a.learn.map(x => `<li>${x}</li>`).join('')}</ul></div>
+      <div class="g-col"><b>📚 Prerequisites</b><p>${a.prereq}</p><b>⏱️ Reading time</b><p>≈ ${mins} min</p></div>`);
+    toc.before(box);
+  }
+  if (a.take && a.take.length) {
+    const k = el('div', { class: 'callout note takeaways' }, `<div class="ttl">✅ Key takeaways</div><ul>${a.take.map(x => `<li>${x}</li>`).join('')}</ul>`);
+    main.append(k);
+  }
+}
+
 function buildPager() {
   const main = document.querySelector('main');
   const seq = PAGES.filter(p => p.id !== 'P');
@@ -95,21 +133,52 @@ function buildToc() {
   slot.innerHTML = '<b>On this page</b><ol>' + hs.map(h => `<li><a href="#${h.id}">${h.textContent}</a></li>`).join('') + '</ol>';
 }
 
+
+// ---- Full-text search across all pages (client-side, lazy) ----
+let INDEX = null;
+async function loadIndex() {
+  if (INDEX) return INDEX;
+  INDEX = [];
+  await Promise.all(PAGES.map(async p => {
+    try {
+      const r = await fetch(p.file); const d = new DOMParser().parseFromString(await r.text(), 'text/html');
+      let heading = p.title, hid = '', buf = [];
+      const flush = () => { const t = buf.join(' ').replace(/\s+/g, ' ').trim(); if (t) INDEX.push({ p, heading, hid, text: t }); buf = []; };
+      d.querySelectorAll('main > *').forEach(n => {
+        if (/^H[23]$/.test(n.tagName)) { flush(); heading = n.textContent.replace(/#$/, '').trim(); hid = n.id || ''; }
+        else buf.push(n.textContent);
+      });
+      flush();
+    } catch (e) { /* offline or missing */ }
+  }));
+  return INDEX;
+}
+function esc(s) { return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+async function runSearch(q) {
+  const box = document.getElementById('searchResults'); const nav = document.querySelectorAll('#sidebar a.nav, #sidebar h4');
+  if (q.length < 2) { box.style.display = 'none'; nav.forEach(n => n.style.display = ''); return; }
+  const idx = await loadIndex(); const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const scored = idx.map(e => {
+    const h = e.heading.toLowerCase(), t = e.text.toLowerCase(); let s = 0;
+    for (const w of terms) { if (!t.includes(w) && !h.includes(w)) return null; s += (h.includes(w) ? 6 : 0) + Math.min(5, t.split(w).length - 1); }
+    return { e, s };
+  }).filter(Boolean).sort((a, b) => b.s - a.s).slice(0, 10);
+  nav.forEach(n => n.style.display = 'none');
+  box.style.display = 'block';
+  box.innerHTML = scored.length ? scored.map(({ e }) => {
+    const t = e.text; const i = Math.max(0, t.toLowerCase().indexOf(terms[0]) - 40);
+    let sn = esc(t.slice(i, i + 130)); terms.forEach(w => { sn = sn.replace(new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>'); });
+    return `<a class="res" href="${e.p.file}${e.hid ? '#' + e.hid : ''}"><b>${e.p.id === 'P' || e.p.id === '00' ? '' : e.p.id + ' · '}${e.p.title}</b><span>${esc(e.heading)}</span><small>…${sn}…</small></a>`;
+  }).join('') : '<div class="nores" style="display:block">No results. Try fewer or different words.</div>';
+}
+
 function wireSearch() {
   const inp = document.getElementById('navFilter');
-  inp.addEventListener('input', () => {
-    const q = inp.value.trim().toLowerCase();
-    let any = false;
-    document.querySelectorAll('#sidebar a.nav').forEach(a => {
-      const hit = !q || a.dataset.search.includes(q) || (PAGE_INDEX[a.getAttribute('href')] || '').includes(q);
-      a.style.display = hit ? '' : 'none'; any = any || hit;
-    });
-    document.querySelectorAll('#sidebar h4').forEach(h => {
-      let n = h.nextElementSibling, vis = false;
-      while (n && n.tagName === 'A') { if (n.style.display !== 'none') vis = true; n = n.nextElementSibling; }
-      h.style.display = vis ? '' : 'none';
-    });
-    document.querySelector('#sidebar .nores').style.display = any ? 'none' : 'block';
+  inp.insertAdjacentElement('afterend', el('div', { id: 'searchResults', style: 'display:none' }));
+  let t; inp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => runSearch(inp.value.trim()), 120); });
+  addEventListener('keydown', e => {
+    if (e.key === '/' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); document.body.classList.add('menu-open'); inp.focus(); }
+    if (e.key === 'Escape' && document.activeElement === inp) { inp.value = ''; runSearch(''); inp.blur(); }
   });
 }
 
@@ -216,5 +285,5 @@ function fillProgress() {
 }
 
 try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-tagTables(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); fillProgress(); decorate();
+tagTables(); buildAids(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); fillProgress(); decorate();
 renderMermaid();
