@@ -25,8 +25,8 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 - [x] 08 authsvc, mechanisms & policies
 
 ## Phase 3 — `feat/phase3-custom-rules-stsuu`
-- [ ] 09 InfoMap & mapping rules (annotated JS)
-- [ ] 10 STSUU & session claims
+- [x] 09 InfoMap & mapping rules (annotated JS)
+- [x] 10 STSUU & session claims
 
 ## Phase 4 — `feat/phase4-e2e-security-migration`
 - [ ] 11 End-to-end 7-step flow

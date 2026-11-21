@@ -3,14 +3,241 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>InfoMap & Mapping Rules (JS) — ISVA Docs</title>
+<title>09 · InfoMap &amp; Mapping Rules (JavaScript) — ISVA Docs</title>
+<meta name="description" content="Rhino JavaScript mapping rules in ISVA: InfoMap_partnerLoginRedirect.js, partnerauthn_pre_token_generation.js and partnerauthn_post_token_generation.js with annotated walkthroughs.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="09" data-stub="true">
+<body data-page="09">
 <main>
-<h1>09 · InfoMap & Mapping Rules (JS)</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>09 · InfoMap &amp; Mapping Rules (Rhino JavaScript)</h1>
+<p class="lead">The three custom rules that turn a generic ISVA into this specific broker: where each one runs, what objects it can touch, and annotated reference implementations that fix the audit findings.</p>
+<div id="toc"></div>
+
+<div class="callout note"><div class="ttl">Read this first</div>The code below is an <strong>annotated reference implementation</strong> of what each rule should do in this architecture, written against the ISVA mapping-rule API as documented for 10.x/11.x. It is <em>not</em> a copy of your production files. Diff it against your real <code>InfoMap_partnerLoginRedirect.js</code>, <code>partnerauthn_pre_token_generation.js</code> and <code>partnerauthn_post_token_generation.js</code>, and confirm class/type names on your firmware (marked <code>// VERIFY</code>).</div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — hooks in a factory line</div>
+<p>ISVA is a factory line that builds tokens. At certain points you can attach a small worker — a <strong>hook</strong> — who may inspect the item, add a label, or stop the line. Those workers are written in <strong>JavaScript running on Rhino</strong> (a Java-based JS engine inside the runtime, ES5-level, no <code>let</code>/arrow functions/<code>fetch</code>).</p></div>
+<div class="table-wrap"><table>
+<tr><th>Rule</th><th>Hook point</th><th>Job here</th></tr>
+<tr><td><code>InfoMap_partnerLoginRedirect.js</code></td><td>Authentication mechanism (InfoMap) in the authsvc policy</td><td>Send the user to <code>csl</code>; later validate the return</td></tr>
+<tr><td><code>partnerauthn_pre_token_generation.js</code></td><td>OAuth “pre-token generation” mapping rule of the definition</td><td>Last check + enrich claims before the code/token is created</td></tr>
+<tr><td><code>partnerauthn_post_token_generation.js</code></td><td>OAuth “post-token generation” mapping rule</td><td>Audit/side effects after the token exists</td></tr>
+</table></div>
+<ul>
+<li><strong>Scopes of data</strong>: <code>Scope.REQUEST</code> (this HTTP request), <code>Scope.SESSION</code> (this login), <code>Scope.GLOBAL</code>-style persistent stores via HVDB/KV (avoid).</li>
+<li><strong>Rule I/O</strong>: InfoMap rules read/write the <code>context</code>, <code>macros</code>, <code>page</code>, <code>success</code>. Token rules read/write an <code>stsuu</code> object (Module 10).</li>
+<li><strong>Fail closed</strong>: if anything looks wrong, stop the flow — never “continue anyway”.</li>
+</ul>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  A[/authsvc/] --> R1[[InfoMap_partnerLoginRedirect.js<br/>redirect out + validate return]]
+  R1 --> CSL[csl]
+  CSL --> AZ[/authorize/]
+  AZ --> R2[[partnerauthn_pre_token_generation.js<br/>gate + enrich]]
+  R2 --> MINT[Mint authorization code]
+  MINT --> R3[[partnerauthn_post_token_generation.js<br/>audit + side effects]]
+  R3 --> REDIR[302 to partner_portal redirect_uri]
+</pre>
+<figcaption>Figure 9.1 — Where each rule hooks into the flow</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — rule trust boundary</div>
+Rules run inside the runtime with full access to the session and token data. Anything they accept (query parameters, upstream attributes) is attacker-influenced input. Treat them like server code: validate, encode, log without secrets, and keep them in version control with peer review.</div>
+
+<h2 id="low">3. Low-level technical sequence</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant S as authsvc
+  participant R1 as InfoMap rule
+  participant C as csl
+  participant Z as authorize
+  participant R2 as pre-token rule
+  participant R3 as post-token rule
+  U->>S: GET /mga/sps/authsvc?client=CID&scope=openid&state=789&code_challenge=H&code_challenge_method=S256
+  S->>R1: run (mode = out)
+  R1->>R1: validate client, scope, PKCE (S256)
+  R1->>R1: state2 = random(32B), nonce2 = random(32B), save in SESSION with portal state=789
+  R1-->>S: redirect to csl /authb/login?appId=27096415&redirect_uri=ENC(authorize URL)&state=state2&nonce=nonce2
+  S-->>U: 302
+  U->>C: login + MFA
+  C-->>U: 302 /authorize?...&state=state2 (assertion)
+  U->>S: GET /authorize (session cookie)
+  S->>R1: run (mode = return)
+  R1->>R1: compare state with SESSION.state2, check assertion nonce2, required acr
+  alt invalid
+    R1-->>S: fail, clear session state
+  else valid
+    R1-->>S: success + uid and attributes into SESSION
+  end
+  S->>Z: authenticated
+  Z->>R2: stsuu (principal, request params, attributes)
+  R2->>R2: re-check PKCE, scope allowlist, add claims
+  R2-->>Z: modified stsuu or exception (access_denied)
+  Z->>Z: mint code
+  Z->>R3: stsuu after generation
+  R3->>R3: write audit trace (no secrets)
+  Z-->>U: 302 redirect_uri?code=...&state=789 (portal state restored)
+</pre>
+<figcaption>Figure 9.2 — Rule execution order inside one login</figcaption></figure>
+
+<h2 id="env">4. Environment deep dive — annotated code</h2>
+
+<h3>4.1 <code>InfoMap_partnerLoginRedirect.js</code></h3>
+<pre><code>// ===== InfoMap_partnerLoginRedirect.js (reference) =====
+importPackage(Packages.com.tivoli.am.fim.trustserver.sts.utilities);   // IDMappingExtUtils (VERIFY package)
+importClass(Packages.com.tivoli.am.fim.trustserver.sts.utilities.IDMappingExtUtils);
+
+var NS_REQ  = "urn:ibm:security:asf:request:parameter";   // query/form parameters of THIS request
+var NS_SESS = "urn:partnerlink:login";                     // our own namespace stored in the session
+
+function param(n)       { return context.get(Scope.REQUEST, NS_REQ, n); }
+function randomUrlSafe(bytes) {                            // cryptographically strong, URL-safe
+  var b = java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE, bytes);
+  new java.security.SecureRandom().nextBytes(b);
+  return String(java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b));
+}
+function fail(msg) {                                       // fail closed
+  IDMappingExtUtils.traceString("partnerLoginRedirect FAIL: " + msg);
+  context.set(Scope.SESSION, NS_SESS, "state2", null);
+  macros.put("@ERROR@", msg);
+  page.setValue("/authsvc/authenticator/partner/error.html");   // custom error template (VERIFY path)
+  success.setValue(false);
+}
+
+var state2 = context.get(Scope.SESSION, NS_SESS, "state2");
+
+if (state2 == null) {
+  // ---- MODE OUT: user is starting a login --------------------------------
+  var client = param("client"), scope = param("scope"), portalState = param("state");
+  var challenge = param("code_challenge"), method = param("code_challenge_method");
+
+  if (client == null || client != "&lt;partner_portal_clientid&gt;") { fail("unknown client"); }
+  else if (scope == null || ("" + scope).split(" ").indexOf("openid") &lt; 0) { fail("openid scope required"); }
+  else if (challenge == null || method != "S256") { fail("PKCE S256 required"); }          // Finding #2
+  else {
+    var s2 = randomUrlSafe(32), n2 = randomUrlSafe(32);                                     // Finding #1: ciam's OWN state/nonce
+    context.set(Scope.SESSION, NS_SESS, "state2", s2);
+    context.set(Scope.SESSION, NS_SESS, "nonce2", n2);
+    context.set(Scope.SESSION, NS_SESS, "portalState", portalState);                        // restored at the end
+    context.set(Scope.SESSION, NS_SESS, "challenge", challenge);
+
+    // Finding #3: build the NESTED url with encoding and exactly one '?' per URL
+    var back = "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/authorize"
+             + "?client_id=" + encodeURIComponent(client) + "&amp;scope=openid"
+             + "&amp;state=" + encodeURIComponent(s2);
+    var url = "https://csl.example.com/authb/login"
+            + "?appId=27096415"
+            + "&amp;redirect_uri=" + encodeURIComponent(back)
+            + "&amp;state=" + encodeURIComponent(s2) + "&amp;nonce=" + encodeURIComponent(n2);
+
+    // Redirect the browser (VERIFY: exact redirect mechanism for your InfoMap version)
+    context.set(Scope.REQUEST, "urn:ibm:security:asf:response", "Location", url);
+    context.set(Scope.REQUEST, "urn:ibm:security:asf:response", "status", "302");
+    success.setValue(false);        // not authenticated yet; flow continues on return
+  }
+} else {
+  // ---- MODE RETURN: browser came back from csl ---------------------------
+  var gotState = param("state");
+  if (gotState == null || gotState != state2) { fail("state mismatch"); }
+  else {
+    // read upstream-verified identity from the validated assertion/headers (VERIFY source)
+    var uid = context.get(Scope.REQUEST, "urn:ibm:security:asf:request:header", "csl-user");
+    if (uid == null) { fail("no upstream identity"); }
+    else {
+      context.set(Scope.SESSION, "urn:ibm:security:asf:response:token:attributes", "username", uid);
+      context.set(Scope.SESSION, NS_SESS, "state2", null);       // single use: prevents replay
+      success.setValue(true);
+    }
+  }
+}</code></pre>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall</div>Upstream identity must come from something the browser cannot forge: a signed assertion/ID token validated by <code>ciam</code>, or a server-to-server call to <code>csl</code>. A plain request header or query parameter set by the user is not proof of login.</div>
+
+<h3>4.2 <code>partnerauthn_pre_token_generation.js</code></h3>
+<pre><code>// ===== partnerauthn_pre_token_generation.js (reference) =====
+importClass(Packages.com.tivoli.am.fim.trustserver.sts.utilities.IDMappingExtUtils);
+importClass(Packages.com.tivoli.am.fim.trustserver.sts.utilities.OAuthMappingExtUtils);   // VERIFY
+importClass(Packages.com.tivoli.am.fim.trustserver.sts.uuser.Attribute);                 // VERIFY
+
+var REQ = "urn:ibm:names:ITFIM:oauth:request:parameter";
+var RESP = "urn:ibm:names:ITFIM:oauth:response:attribute";
+
+var grant = stsuu.getContextAttributes().getAttributeValueByNameAndType("grant_type", REQ);
+var chall = stsuu.getContextAttributes().getAttributeValueByNameAndType("code_challenge", REQ);
+var cmeth = stsuu.getContextAttributes().getAttributeValueByNameAndType("code_challenge_method", REQ);
+var scope = stsuu.getContextAttributes().getAttributeValueByNameAndType("scope", REQ);
+
+function deny(m) {
+  IDMappingExtUtils.traceString("pre-token DENY: " + m);
+  OAuthMappingExtUtils.throwSTSCustomUserMessageException(m, 400);   // VERIFY signature
+}
+
+// 1. Defence in depth: PKCE even if /authsvc was bypassed
+if (grant == "authorization_code" || grant == null) {
+  if (chall == null || cmeth == null || cmeth.length == 0 || cmeth[0] != "S256") { deny("pkce_required"); }
+}
+// 2. Scope allowlist (openid + profile only)
+var allowed = {"openid": 1, "profile": 1};
+if (scope != null &amp;&amp; scope.length &gt; 0) {
+  var parts = String(scope[0]).split(" ");
+  for (var i = 0; i &lt; parts.length; i++) { if (!allowed[parts[i]]) { deny("scope_not_allowed:" + parts[i]); } }
+}
+// 3. Enrich: add a business claim from upstream attributes
+var partnerId = stsuu.getAttributeContainer().getAttributeValueByName("partnerId");
+if (partnerId != null &amp;&amp; partnerId.length &gt; 0) {
+  stsuu.addContextAttribute(new Attribute("partner_id", RESP, String(partnerId[0])));
+}
+// 4. NEVER copy secrets/passwords/raw upstream tokens into claims.</code></pre>
+
+<h3>4.3 <code>partnerauthn_post_token_generation.js</code></h3>
+<pre><code>// ===== partnerauthn_post_token_generation.js (reference) =====
+importClass(Packages.com.tivoli.am.fim.trustserver.sts.utilities.IDMappingExtUtils);
+
+try {
+  var user = stsuu.getPrincipalName();
+  var cid  = stsuu.getContextAttributes().getAttributeValueByNameAndType(
+               "client_id", "urn:ibm:names:ITFIM:oauth:request:parameter");
+  // audit line: WHO, WHICH CLIENT, WHEN. Do NOT log codes, tokens, secrets.
+  IDMappingExtUtils.traceString("AUDIT token_issued user=" + user + " client=" + (cid ? cid[0] : "?") +
+                                " ts=" + new Date().toISOString());
+} catch (e) {
+  IDMappingExtUtils.traceString("post-token audit error: " + e);   // never break issuance for logging
+}</code></pre>
+
+<h3>Debugging tips</h3>
+<ul>
+<li><code>IDMappingExtUtils.traceString(msg)</code> writes to the runtime trace — enable the trace spec for the mapping-rule component (Module 04) and <strong>turn it off afterwards</strong>.</li>
+<li>Rhino ≈ ES5: use <code>var</code>, <code>function</code>, <code>indexOf</code>; <code>Date.prototype.toISOString</code> exists; no <code>const</code>/arrow/template strings/<code>Promise</code>.</li>
+<li>Java arrays/strings from Java calls: wrap with <code>String(...)</code> before comparing.</li>
+</ul>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td><code>/authsvc</code> returns a generic 500</td><td>JS exception (typo, null deref, wrong import)</td><td>Trace log: search <code>JavaScript</code>, <code>EcmaError</code></td><td>Roll back snapshot; fix; add try/catch.</td></tr>
+<tr><td><code>csl</code> receives a mangled URL</td><td>Missing <code>encodeURIComponent</code>, double <code>?</code></td>
+<td><pre><code>curl -sI "https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=1" | grep -i ^location | grep -o '?' | wc -l   # expect 1 in the outer URL</code></pre></td><td>Encode every nested value (code above).</td></tr>
+<tr><td>Replay of Step 4 succeeds twice</td><td>state2 not cleared after use</td><td>Re-request the same <code>/authorize</code> URL</td><td>Null the session value on success/failure.</td></tr>
+<tr><td>Custom claim missing from <code>id_token</code></td><td>Wrong attribute <em>type</em> in <code>addContextAttribute</code></td><td>Decode token and compare to trace of stsuu</td><td>Use the response/id-token claim attribute type from IBM docs for your version.</td></tr>
+<tr><td>Rule change “does nothing”</td><td>Not deployed</td><td><code>GET /isam/pending_changes</code></td><td>Deploy (Module 04).</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>No Rhino and no code on the appliance. Each rule's responsibility maps to a declarative feature or a webhook <em>you</em> host.</div>
+<div class="table-wrap"><table>
+<tr><th>Rule / responsibility</th><th>Verify SaaS replacement</th></tr>
+<tr><td><code>InfoMap_partnerLoginRedirect.js</code> — redirect to <code>csl</code></td><td><strong>Identity Source</strong> (OIDC/SAML) pointing to <code>csl</code>; tenant generates <code>state</code>/<code>nonce</code>/PKCE for that leg</td></tr>
+<tr><td>Validate state/nonce on return</td><td>Handled by the service</td></tr>
+<tr><td>Pre-token: PKCE + scope gating</td><td>Application setting “Require PKCE”; scope allowlist in application</td></tr>
+<tr><td>Pre-token: add claims</td><td><strong>Attribute mappings / custom attribute functions</strong> and token claim mapping; or a <strong>Pre-Token webhook</strong> for external lookups</td></tr>
+<tr><td>Post-token: audit/side effects</td><td>Event webhooks / Reports API streaming to your SIEM</td></tr>
+</table></div>
+<p>Next: <a href="10-stsuu-session-claims.html">Module 10 — STSUU &amp; session claims</a>.</p>
 </main>
 </body>
 </html>

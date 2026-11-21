@@ -3,14 +3,140 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>STSUU & Session Claims — ISVA Docs</title>
+<title>10 · STSUU &amp; Session Claims — ISVA Docs</title>
+<meta name="description" content="The STSUU (Security Token Service Universal User) document: Principal, AttributeList, ContextAttributes and the claim transformation lifecycle.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="10" data-stub="true">
+<body data-page="10">
 <main>
-<h1>10 · STSUU & Session Claims</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>10 · STSUU &amp; Session Claims</h1>
+<p class="lead">The STSUU is the single data envelope that every token rule reads and writes. Understand its three parts — <em>Principal</em>, <em>AttributeList</em>, <em>ContextAttributes</em> — and you understand how a login becomes the claims in an <code>id_token</code>.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the shipping envelope</div>
+<p>Imagine a clipboard that travels with a package along the factory line. The top says <strong>who the package is for</strong> (Principal). A first list says <strong>facts about that person</strong> (AttributeList: email, groups). A second list says <strong>facts about this particular delivery</strong> (ContextAttributes: client, scope, IP, grant type, PKCE challenge). Each worker (rule) can read the clipboard and add lines. At the end, the lists are turned into token claims.</p></div>
+<p><strong>STSUU</strong> = <em>Security Token Service Universal User</em>, an XML structure (also exposed as a JavaScript object in rules). It is protocol-neutral: SAML, OAuth/OIDC and InfoMap all convert to and from it.</p>
+
+<h3>Structure</h3>
+<pre><code>&lt;stsuuser:STSUniversalUser xmlns:stsuuser="urn:ibm:names:ITFIM:1.0:stsuuser"&gt;
+  &lt;stsuuser:Principal&gt;
+    &lt;stsuuser:Attribute name="name" type="urn:ibm:names:ITFIM:5.1:accessmanager"&gt;
+      &lt;stsuuser:Value&gt;jdoe&lt;/stsuuser:Value&gt;
+    &lt;/stsuuser:Attribute&gt;
+  &lt;/stsuuser:Principal&gt;
+
+  &lt;stsuuser:AttributeList&gt;                       &lt;!-- facts about the USER --&gt;
+    &lt;stsuuser:Attribute name="email"&gt;&lt;stsuuser:Value&gt;jdoe@example.com&lt;/stsuuser:Value&gt;&lt;/stsuuser:Attribute&gt;
+    &lt;stsuuser:Attribute name="partnerId"&gt;&lt;stsuuser:Value&gt;P-1001&lt;/stsuuser:Value&gt;&lt;/stsuuser:Attribute&gt;
+    &lt;stsuuser:Attribute name="groups"&gt;&lt;stsuuser:Value&gt;buyers&lt;/stsuuser:Value&gt;&lt;stsuuser:Value&gt;admins&lt;/stsuuser:Value&gt;&lt;/stsuuser:Attribute&gt;
+  &lt;/stsuuser:AttributeList&gt;
+
+  &lt;stsuuser:ContextAttributes&gt;                  &lt;!-- facts about THIS REQUEST/TRANSACTION --&gt;
+    &lt;stsuuser:Attribute name="client_id" type="urn:ibm:names:ITFIM:oauth:request:parameter"&gt;
+      &lt;stsuuser:Value&gt;&lt;partner_portal_clientid&gt;&lt;/stsuuser:Value&gt;
+    &lt;/stsuuser:Attribute&gt;
+    &lt;stsuuser:Attribute name="scope" type="urn:ibm:names:ITFIM:oauth:request:parameter"&gt;
+      &lt;stsuuser:Value&gt;openid&lt;/stsuuser:Value&gt;
+    &lt;/stsuuser:Attribute&gt;
+  &lt;/stsuuser:ContextAttributes&gt;
+&lt;/stsuuser:STSUniversalUser&gt;</code></pre>
+<div class="table-wrap"><table>
+<tr><th>Part</th><th>Holds</th><th>Becomes</th></tr>
+<tr><td><strong>Principal</strong></td><td>One identity name (+ type)</td><td><code>sub</code> (subject) / token owner</td></tr>
+<tr><td><strong>AttributeList</strong></td><td>User attributes (multi-valued)</td><td>Claims such as <code>email</code>, <code>groups</code> (after mapping)</td></tr>
+<tr><td><strong>ContextAttributes</strong></td><td>Request/transaction data with a <em>type URI</em></td><td>Used for decisions; some types are emitted as response attributes</td></tr>
+</table></div>
+<p>The <strong>type URI</strong> is what makes ContextAttributes powerful: <code>urn:ibm:names:ITFIM:oauth:request:parameter</code> = what the client sent; <code>urn:ibm:names:ITFIM:oauth:response:attribute</code> = what will be returned in the token response; other types cover OIDC claims and metadata (VERIFY exact URIs for your version).</p>
+
+<h2 id="high">2. High-level architecture — claim transformation lifecycle</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  UP[csl identity<br/>uid, email, partnerId, groups] --> SESS[(ISVA session<br/>credential attributes)]
+  REQ[OAuth request<br/>client_id, scope, PKCE] --> CTX
+  SESS --> SU[STSUU<br/>Principal + AttributeList]
+  SU --> PRE[[pre-token rule]]
+  CTX[ContextAttributes] --> PRE
+  PRE --> MAP[Claim mapping<br/>definition settings]
+  MAP --> JWT[[id_token / access_token claims]]
+  JWT --> POST[[post-token rule<br/>audit]]
+</pre>
+<figcaption>Figure 10.1 — From upstream identity to token claims</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — session vs token</div>
+The ISVA <em>session</em> holds raw attributes from login (including any extras from <code>csl</code>). The STSUU copies the relevant ones for the token engine. Only attributes that survive mapping appear in the token — so “claim missing” is almost always a mapping problem, not a login problem.</div>
+
+<h2 id="low">3. Low-level technical sequence</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Z as /authorize + token engine
+  participant S as Session store
+  participant U as STSUU builder
+  participant R2 as pre-token rule
+  participant M as Claim mapper
+  participant R3 as post-token rule
+  Z->>S: read credential attributes for session PD-S-SESSION-ID
+  S-->>Z: username=jdoe, email, partnerId, groups
+  Z->>U: build STSUU
+  U-->>Z: Principal=jdoe, AttributeList[email, partnerId, groups]
+  Z->>U: add ContextAttributes (oauth:request:parameter client_id, scope, state, code_challenge)
+  Z->>R2: execute with stsuu
+  R2->>R2: read/validate, addContextAttribute(partner_id, oauth:response:attribute)
+  R2-->>Z: stsuu (modified)
+  Z->>M: map AttributeList and response attributes into claims
+  M-->>Z: {"sub":"jdoe","email":"...","partner_id":"P-1001","groups":["buyers","admins"]}
+  Z->>Z: sign JWT RS256, store code or token
+  Z->>R3: execute with final stsuu
+  R3-->>Z: done (audit only)
+</pre>
+<figcaption>Figure 10.2 — Detailed lifecycle with the STSUU as the carrier</figcaption></figure>
+
+<h3>Common STSUU operations in rules (JavaScript)</h3>
+<pre><code>var name   = stsuu.getPrincipalName();                                      // "jdoe"
+var email  = stsuu.getAttributeContainer().getAttributeValueByName("email"); // Java String[]; email[0]
+stsuu.getAttributeContainer().setAttribute(new Attribute("tier", "urn:ibm:names:ITFIM:5.1:accessmanager", "gold"));
+var cid    = stsuu.getContextAttributes().getAttributeValueByNameAndType("client_id",
+               "urn:ibm:names:ITFIM:oauth:request:parameter");
+stsuu.addContextAttribute(new Attribute("partner_id", "urn:ibm:names:ITFIM:oauth:response:attribute", "P-1001"));
+IDMappingExtUtils.traceString(stsuu.toString());   // dumps XML to trace (do NOT leave on in production)</code></pre>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Item</th><th>In this environment</th></tr>
+<tr><td>Principal</td><td>User name provided by <code>csl</code> after login</td></tr>
+<tr><td>AttributeList</td><td>Whatever <code>InfoMap_partnerLoginRedirect.js</code> stores in the session on return (e.g. uid, email, partnerId)</td></tr>
+<tr><td>ContextAttributes</td><td><code>client</code>/<code>client_id</code>, <code>scope</code>, <code>state</code> (portal), <code>code_challenge(_method)</code>, grant_type</td></tr>
+<tr><td>Where to inspect</td><td>Trace with <code>stsuu.toString()</code> in the pre-token rule (temporarily)</td></tr>
+<tr><td>Claims the portal consumes</td><td><code>sub</code>, <code>email</code>, <code>partner_id</code>, <code>acr</code> (recommend adding <code>amr</code>/<code>acr</code> from upstream)</td></tr>
+</table></div>
+<p>Compare token claims with what the server returns for the same user:</p>
+<pre><code>curl -s -H "Authorization: Bearer $ACCESS_TOKEN" https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/userinfo | jq .</code></pre>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — over-sharing claims</div>Everything in the AttributeList is a candidate for the token, and JWTs are readable by anyone who holds them (and often logged). Map an <strong>explicit allowlist</strong> of claims; never include internal IDs, group DNs, raw upstream tokens, or personal data the portal doesn't need.</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td><code>sub</code> is wrong / empty</td><td>Principal name not set (success returned without <code>username</code>)</td>
+<td><pre><code>cut -d. -f2 &lt;&lt;&lt;"$ID_TOKEN" | tr '_-' '/+' | base64 -d 2&gt;/dev/null | jq '{sub,email,partner_id}'</code></pre></td><td>Ensure the InfoMap return step sets the username attribute.</td></tr>
+<tr><td>Claim present in trace stsuu but not in token</td><td>Wrong ContextAttribute type or claim not mapped</td><td>Compare trace with token payload</td><td>Use response-attribute type; add mapping in definition.</td></tr>
+<tr><td><code>NullPointerException</code> in rule</td><td><code>getAttributeValueByName</code> returned null</td><td>Trace error</td><td>Null-check before indexing <code>[0]</code>.</td></tr>
+<tr><td>Multi-valued claim collapsed to string</td><td>Only <code>[0]</code> copied</td><td>Check <code>groups</code> in token</td><td>Add all values to the Attribute.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>There is no STSUU to script. Identity attributes live on the user profile (and on federated identity-source attributes); you choose which attributes appear as claims in the application's OIDC <strong>attribute mapping</strong>, optionally transformed by <strong>custom attribute functions</strong>.</div>
+<div class="table-wrap"><table>
+<tr><th>STSUU concept</th><th>Verify SaaS</th></tr>
+<tr><td>Principal</td><td>Subject (<code>sub</code>) from the user's unique identifier / chosen attribute</td></tr>
+<tr><td>AttributeList</td><td>User profile attributes + identity-source attribute mappings</td></tr>
+<tr><td>ContextAttributes</td><td>Request context for access policies (IP, device, risk) and pre-token webhook payload</td></tr>
+<tr><td><code>addContextAttribute</code> custom claim</td><td>Application → Sign-on → Attribute mappings (static, attribute, or function) and Pre-Token webhook response</td></tr>
+<tr><td>Claim allowlist in rule</td><td>Explicit attribute mapping list (only mapped attributes issued)</td></tr>
+</table></div>
+<p>Phase 3 complete. Next: <a href="11-end-to-end-7-step-flow.html">Module 11 — the end-to-end flow</a>.</p>
 </main>
 </body>
 </html>
