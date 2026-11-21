@@ -3,14 +3,155 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Security Audit & Hardening — ISVA Docs</title>
+<title>12 · Security Audit &amp; Hardening — ISVA Docs</title>
+<meta name="description" content="Security audit findings and hardening blueprint: state/nonce isolation, PKCE S256, nested redirect_uri encoding, localhost iss, ROPC and the Akamai/WebSEAL ACL matrix.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="12" data-stub="true">
+<body data-page="12">
 <main>
-<h1>12 · Security Audit & Hardening</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>12 · Security Audit &amp; Hardening Blueprint</h1>
+<p class="lead">Five findings against the current <code>ciam</code> design, each explained from first principles, with the attack it enables, the exact fix and a test that proves the fix.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — why these controls exist</div>
+<p><strong>state</strong> is a random ticket number you attach to a request and must get back unchanged — it proves the response belongs to <em>your</em> request (stops login CSRF). <strong>nonce</strong> is a random value baked into the <em>token</em> so an old token can't be replayed. <strong>PKCE</strong> proves the one who redeems the code is the one who asked for it. <strong>Exact redirect matching and URL-encoding</strong> make sure codes go only where intended. <strong>Correct <code>iss</code></strong> proves who minted the token. <strong>Network gates</strong> (Akamai/ACL) should block everything except what must be public.</p></div>
+
+<h3>Findings summary</h3>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>Finding</th><th>Severity</th><th>Module</th></tr>
+<tr><td>1</td><td><code>state</code>/<code>nonce</code> not isolated per leg</td><td>High</td><td>09</td></tr>
+<tr><td>2</td><td>PKCE <code>S256</code> not enforced</td><td>High</td><td>06, 09</td></tr>
+<tr><td>3</td><td>Double <code>?</code> and unencoded nested <code>redirect_uri</code></td><td>Medium</td><td>09</td></tr>
+<tr><td>4</td><td><code>localhost</code> Provider ID (<code>iss</code>) and ROPC enabled</td><td>High</td><td>05</td></tr>
+<tr><td>5</td><td>Akamai IP allowlist / WebSEAL ACL on <code>/metadata</code>, <code>/jwks</code></td><td>Medium (availability)</td><td>02, 07</td></tr>
+</table></div>
+
+<h2 id="high">2. High-level architecture — before vs after</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph Before
+    B1[portal state=789] --> B2[ciam forwards 789 to csl]
+    B2 --> B3[csl returns 789]
+    B3 --> B4[ciam accepts, returns 789]
+  end
+  subgraph After
+    A1[portal state=789 + PKCE challenge] --> A2[ciam stores 789, creates state2 + nonce2]
+    A2 --> A3[csl returns state2]
+    A3 --> A4[ciam verifies state2, single use]
+    A4 --> A5[ciam returns code + portal state 789]
+  end
+</pre>
+<figcaption>Figure 12.1 — Isolating the two OAuth legs</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — two relationships, two sets of protections</div>
+<code>ciam</code> is an <em>authorization server</em> to the portal and a <em>relying party</em> to <code>csl</code>. As a relying party it must behave like any client: its own <code>state</code>, <code>nonce</code> and PKCE verifier toward <code>csl</code>. As an authorization server it must enforce the portal's PKCE challenge and exact <code>redirect_uri</code>.</div>
+
+<h2 id="low">3. Low-level technical sequence — hardened flow</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant P as partner_portal
+  participant C as ciam
+  participant S as csl
+  participant B as partner_portal_backend
+  P->>P: state=789, nonce=N, verifier V, challenge H=S256(V)
+  P-->>U: 302 /mga/sps/authsvc?client=CID&scope=openid&state=789&nonce=N&code_challenge=H&code_challenge_method=S256
+  U->>C: GET /authsvc
+  alt no PKCE or method plain
+    C-->>U: 302 redirect_uri?error=invalid_request&state=789
+  else
+    C->>C: save {789, N, H}, create state2, nonce2 (+ own verifier V2 for csl)
+    C-->>U: 302 https://csl.example.com/authb/login?appId=27096415&redirect_uri=https%3A%2F%2Ftest.partnerlink.enterprise.com%2Fmga%2Fsps%2Foauth%2Foauth20%2Fauthorize&state=state2&nonce=nonce2
+  end
+  U->>S: login + MFA
+  S-->>U: 302 /authorize?...&state=state2
+  U->>C: GET /authorize (cookie)
+  alt state2 unknown or already used
+    C-->>U: error, session cleared
+  else
+    C->>C: consume state2, verify nonce2 and upstream acr/amr
+    C-->>U: 302 https://portal.example.com/cb?code=X&state=789
+  end
+  U->>P: GET /cb?code=X&state=789
+  P->>B: code + V
+  B->>C: POST /token (client_secret, code_verifier=V)
+  C->>C: S256(V) equals H? redirect_uri equal? code unused and under 60s?
+  C-->>B: 200 id_token (iss=external URL, aud=CID, nonce=N)
+  B->>B: validate signature via JWKS, iss, aud, exp, nonce=N
+</pre>
+<figcaption>Figure 12.2 — Target hardened sequence</figcaption></figure>
+
+<h2 id="env">4. Environment deep dive — findings in detail</h2>
+
+<h3>Finding 1 — <code>state</code> &amp; <code>nonce</code> isolation</h3>
+<p><strong>Attack:</strong> an attacker who can start a login on <code>csl</code> with the portal's known <code>state=789</code> (or fixed value) can feed a victim a callback that <code>ciam</code> accepts because the value matches nothing <code>ciam</code> generated — login CSRF / session fixation. Reusing the portal's value also leaks it to <code>csl</code> and its logs.</p>
+<p><strong>Fix:</strong> generate 256-bit random <code>state2</code>/<code>nonce2</code> in <code>InfoMap_partnerLoginRedirect.js</code>, store in session, verify and delete on return (code in <a href="09-infomap-mapping-rules.html">Module 09</a>), and restore the portal's original <code>state</code> only in the final redirect.</p>
+<pre><code># test: replay the return step with a tampered state — must fail
+curl -sI -H "Cookie: PD-S-SESSION-ID=$SID" \
+ "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/authorize?client_id=$CID&amp;scope=openid&amp;state=attacker" | egrep -i '^(HTTP|location)'
+# expected: error, not a redirect carrying a code</code></pre>
+
+<h3>Finding 2 — PKCE <code>S256</code></h3>
+<p><strong>Attack:</strong> anyone who captures the <code>code</code> (browser extension, referrer, shared device, logs) can redeem it if they also know/steal the client secret or if the client is public. PKCE binds the code to the original requester.</p>
+<p><strong>Fix:</strong> require <code>code_challenge</code> with <code>S256</code> on both <code>/authsvc</code> and <code>/authorize</code>; reject <code>plain</code>; verify <code>code_verifier</code> at <code>/token</code>; advertise <code>code_challenge_methods_supported:["S256"]</code>. Test without a challenge: must return <code>invalid_request</code>.</p>
+
+<h3>Finding 3 — Nested URL encoding</h3>
+<p><strong>Current:</strong> <code>/authb/login?appId=27096415/authorize?appId=123&amp;scope=openid&amp;state=789</code>. A second <code>?</code> is not a delimiter; parsers differ, so parameters can be lost, swapped or injected (<code>appId</code> appears twice).</p>
+<p><strong>Fix:</strong> <code>/authb/login?appId=27096415&amp;redirect_uri=https%3A%2F%2Ftest.partnerlink.enterprise.com%2Fmga%2Fsps%2Foauth%2Foauth20%2Fauthorize%3Fclient_id%3D…%26state%3D…</code> — one <code>?</code>, every nested value percent-encoded, and <code>csl</code> must exact-match the <code>redirect_uri</code>.</p>
+<pre><code>curl -sI "https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=1" \
+ | grep -i '^location:' | tr -cd '?' | wc -c      # expect 1</code></pre>
+
+<h3>Finding 4 — <code>localhost</code> issuer and ROPC</h3>
+<p><strong>Risk:</strong> internal Provider ID <code>https://localhost/sps/oauth/oauth20/15</code> makes validators fail or be loosened; ROPC lets clients collect passwords and bypass upstream MFA.</p>
+<p><strong>Fix:</strong> Provider ID to the external URL, update every relying party; untick “Resource owner username password” (and Implicit); deploy; confirm <code>unsupported_grant_type</code> (<a href="05-api-protection-definitions.html">Module 05</a>).</p>
+
+<h3>Finding 5 — Edge/ACL matrix</h3>
+<div class="table-wrap"><table>
+<tr><th>Path</th><th>Caller</th><th>Akamai</th><th>WebSEAL ACL (<code>unauthenticated</code>)</th><th>Note</th></tr>
+<tr><td><code>/mga/sps/authsvc</code></td><td>User browsers</td><td>Allow all (WAF on)</td><td><code>Tr</code></td><td>Entry to login</td></tr>
+<tr><td><code>/mga/sps/oauth/oauth20/authorize</code></td><td>User browsers</td><td>Allow all (WAF on)</td><td><code>Tr</code></td><td>Session cookie carries identity</td></tr>
+<tr><td><code>/mga/sps/oauth/oauth20/token</code></td><td><code>partner_portal_backend</code></td><td>Allowlist backend egress IPs</td><td><code>Tr</code> (client auth by secret)</td><td>Rate limit</td></tr>
+<tr><td><code>/mga/sps/oauth/oauth20/metadata/*</code></td><td>Backend (and public)</td><td>Allow</td><td><code>Tr</code></td><td>Public by design</td></tr>
+<tr><td><code>/mga/sps/oauth/oauth20/jwks/*</code></td><td>Backend (and public)</td><td>Allow</td><td><code>Tr</code></td><td>Public keys only</td></tr>
+<tr><td><code>/mga/sps/oauth/oauth20/introspect</code>, <code>/userinfo</code></td><td>Resource servers</td><td>Allowlist</td><td>Token/auth required</td><td>Do not open broadly</td></tr>
+<tr><td>Everything else under <code>/mga</code></td><td>—</td><td>Deny</td><td>Inherit restrictive default</td><td>Least privilege</td></tr>
+<tr><td>LMI <code>:9443</code></td><td>Admins</td><td>Not published</td><td>—</td><td>Admin network only</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — more hardening items to check</div>
+<ul>
+<li><code>client_secret</code> in a vault; rotate; never in the SPA.</li>
+<li>Short lifetimes: code ≤ 60 s single-use, access ≤ 15 min, id_token ≤ 10 min.</li>
+<li><code>Secure; HttpOnly; SameSite</code> on <code>PD-S-SESSION-ID</code>; HSTS and TLS 1.2+.</li>
+<li>No tokens/secrets in trace logs; turn tracing off after use.</li>
+<li>Validate <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>nonce</code>, <code>alg</code> pinned to RS256 (reject <code>none</code>).</li>
+</ul></div>
+
+<h2 id="pitfalls">5. Verification playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Control</th><th>Test</th><th>Pass when</th></tr>
+<tr><td>PKCE required</td><td><pre><code>curl -sI "https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=1" | grep -i location</code></pre></td><td><code>error=invalid_request</code></td></tr>
+<tr><td>ROPC off</td><td><pre><code>curl -s -u "$CID:$SECRET" -d grant_type=password -d username=a -d password=b https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/token</code></pre></td><td><code>unsupported_grant_type</code></td></tr>
+<tr><td>Issuer correct</td><td><pre><code>curl -s https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test | jq -r .issuer</code></pre></td><td>Starts with <code>https://test.partnerlink.enterprise.com</code></td></tr>
+<tr><td>JWKS public</td><td><pre><code>curl -s -o /dev/null -w '%{http_code}\n' https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test</code></pre></td><td><code>200</code> from backend host</td></tr>
+<tr><td>Code single-use</td><td>Exchange same code twice</td><td>2nd returns <code>invalid_grant</code></td></tr>
+<tr><td>state tamper</td><td>Alter <code>state</code> on return</td><td>Rejected</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>Most findings become platform guarantees or single settings.</div>
+<div class="table-wrap"><table>
+<tr><th>Finding</th><th>Verify SaaS</th></tr>
+<tr><td>1 state/nonce isolation</td><td>Per-leg state/nonce generated by the tenant for each Identity Source</td></tr>
+<tr><td>2 PKCE</td><td>Application setting: require PKCE (S256)</td></tr>
+<tr><td>3 Nested URL encoding</td><td>No hand-built URLs; Identity Source config only</td></tr>
+<tr><td>4 localhost iss / ROPC</td><td>Issuer fixed to tenant; do not enable password grant on the application</td></tr>
+<tr><td>5 Akamai/ACL</td><td>Public discovery/JWKS by default; restrict admin/API access with API-client entitlements and tenant IP policies</td></tr>
+</table></div>
+<p>Next: <a href="13-verify-saas-migration.html">Module 13 — Migration guide</a>.</p>
 </main>
 </body>
 </html>
