@@ -1,10 +1,10 @@
 // Shared site chrome: sidebar, breadcrumb, pager, search, Mermaid rendering. No build step.
 export const PAGES = [
   { id: '00', file: 'index.html', title: 'Overview & Roadmap', phase: 'Start Here', branch: 'feat/site-scaffold-and-nav', status: 'done' },
-  { id: '01', file: '01-iam-oidc-foundations.html', title: 'IAM & OIDC Foundations', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'todo' },
-  { id: '02', file: '02-webseal-junctions.html', title: 'WebSEAL, Akamai & Junctions', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'todo' },
-  { id: '03', file: '03-aac-federation-runtime.html', title: 'AAC & Federation Runtime', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'todo' },
-  { id: '04', file: '04-lmi-deployment-ops.html', title: 'LMI, Deploy & pdadmin', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'todo' },
+  { id: '01', file: '01-iam-oidc-foundations.html', title: 'IAM & OIDC Foundations', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'done' },
+  { id: '02', file: '02-webseal-junctions.html', title: 'WebSEAL, Akamai & Junctions', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'done' },
+  { id: '03', file: '03-aac-federation-runtime.html', title: 'AAC & Federation Runtime', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'done' },
+  { id: '04', file: '04-lmi-deployment-ops.html', title: 'LMI, Deploy & pdadmin', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'done' },
   { id: '05', file: '05-api-protection-definitions.html', title: 'API Protection Definitions', phase: 'Phase 2 — OAuth & OIDC', branch: 'feat/phase2-oauth-oidc', status: 'todo' },
   { id: '06', file: '06-oauth-oidc-clients.html', title: 'OAuth/OIDC Clients & PKCE', phase: 'Phase 2 — OAuth & OIDC', branch: 'feat/phase2-oauth-oidc', status: 'todo' },
   { id: '07', file: '07-metadata-jwks-discovery.html', title: 'Metadata & JWKS Discovery', phase: 'Phase 2 — OAuth & OIDC', branch: 'feat/phase2-oauth-oidc', status: 'todo' },

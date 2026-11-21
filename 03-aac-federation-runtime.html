@@ -3,14 +3,132 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AAC & Federation Runtime — ISVA Docs</title>
+<title>03 · AAC &amp; Federation Runtime — ISVA Docs</title>
+<meta name="description" content="Advanced Access Control and Federation runtime in ISVA: /mga/sps endpoints, Liberty internals, context-based access and step-up obligations.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="03" data-stub="true">
+<body data-page="03">
 <main>
-<h1>03 · AAC & Federation Runtime</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>03 · AAC &amp; Federation Runtime</h1>
+<p class="lead">The “brain” behind <code>ciam</code>: the Advanced Access Control (AAC) and Federation runtime that implements OAuth/OIDC, the authentication service, risk-based (context-based) access and step-up flows. WebSEAL forwards to it through the <code>/mga</code> junction.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the bank manager</div>
+<p>WebSEAL is the teller window: it checks your card and passes simple requests through. When something needs judgement — “this withdrawal is unusual” or “this app wants to act for you” — the teller calls the <strong>bank manager</strong> in the back office. The manager looks at <em>context</em> (where are you? what device? what time? how risky?) and can say <em>allow</em>, <em>deny</em> or <em>“prove it again with a one-time code”</em> (a <strong>step-up obligation</strong>). The manager is the AAC runtime.</p></div>
+<ul>
+<li><strong>Runtime (“Federation/AAC runtime”)</strong>: a separate Java server inside the appliance (IBM WebSphere Liberty) that hosts the endpoints below. It is <em>not</em> WebSEAL.</li>
+<li><strong>Endpoints under <code>/sps</code></strong> (reached as <code>/mga/sps/…</code> via the junction): <code>/authsvc</code> (login flows), <code>/oauth/oauth20/*</code> (authorize, token, introspect, metadata, jwks), <code>/saml20/*</code>, <code>/oidc/*</code>, <code>/apiauthsvc</code> (API-style authentication).</li>
+<li><strong>Context-Based Access (CBA)</strong>: policies that score the risk of a request using attributes (IP, geo, device fingerprint, user history) and return a decision plus <strong>obligations</strong>.</li>
+<li><strong>Mapping rules</strong>: server-side JavaScript (Rhino) hooks that customise behaviour — the three rules used here are explained in <a href="09-infomap-mapping-rules.html">Module 09</a>.</li>
+</ul>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart TB
+  WS[WebSEAL<br/>/mga junction] --> LIB
+  subgraph LIB[AAC / Federation runtime - WebSphere Liberty]
+    direction TB
+    AUTH[Authentication Service<br/>/sps/authsvc]
+    OAUTH[OAuth 2.0 / OIDC provider<br/>/sps/oauth/oauth20]
+    CBA[Context-Based Access<br/>risk profiles + policies]
+    MAP[Mapping rules<br/>Rhino JS: InfoMap, pre/post token]
+    SAML[SAML / OIDC federation]
+  end
+  LIB --> DB[(Runtime DB<br/>tokens, sessions, device data)]
+  LIB --> CFG[(Config DB / LMI<br/>published snapshot)]
+  OAUTH --> MAP
+  AUTH --> MAP
+  AUTH --> CBA
+</pre>
+<figcaption>Figure 3.1 — Components inside the runtime</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — config is a snapshot</div>
+Configuration made in LMI sits in a staging area and only reaches the runtime after <strong>Deploy Pending Changes</strong> (Module 04). Runtime Liberty reloads on deploy. In clustered deployments a primary/secondary config database distributes the same snapshot to every runtime node.</div>
+
+<h2 id="low">3. Low-level technical sequence — context-based access with step-up</h2>
+<p>The following shows how an access-control policy can demand stronger authentication for a sensitive resource. It is the same mechanism <code>ciam</code> can use to require MFA, though in this deployment MFA is performed upstream by <code>csl</code>.</p>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant W as WebSEAL
+  participant R as AAC runtime
+  participant S as csl (upstream MFA)
+  U->>W: GET /app/transfer (PD-S-SESSION-ID cookie, level=password)
+  activate W
+  W->>W: POP attached to /app/transfer requires access-control policy
+  W->>R: Evaluate policy (user, IP, device, resource, action)
+  activate R
+  R->>R: Build context, run risk profile, compute risk score
+  alt low risk
+    R-->>W: Permit
+    W-->>U: 200 resource
+  else obligation: step-up MFA
+    R-->>W: Deny with obligation (authentication policy = MFA_policy)
+    deactivate R
+    W-->>U: 302 /mga/sps/authsvc/policy/MFA_policy?...
+    U->>R: GET /mga/sps/authsvc/policy/MFA_policy
+    R->>U: 302 to csl challenge (InfoMap rule delegates upstream)
+    U->>S: GET /authb/login?...
+    S-->>U: 302 back after OTP success
+    U->>R: GET callback with authenticated context
+    R-->>W: step-up credential (authenticated at level MFA)
+    W-->>U: 302 original URL, session upgraded
+    U->>W: GET /app/transfer
+    W-->>U: 200 resource
+  else deny
+    R-->>W: Deny
+    W-->>U: 403 HPDIA error page
+  end
+  deactivate W
+</pre>
+<figcaption>Figure 3.2 — Obligation-driven step-up</figcaption></figure>
+
+<h3>Where each thing lives in LMI (verify menu names on your firmware)</h3>
+<div class="table-wrap"><table>
+<tr><th>Task</th><th>LMI area</th></tr>
+<tr><td>Runtime parameters &amp; ports</td><td>Secure Access Control → Global Settings (and System → Secure Settings)</td></tr>
+<tr><td>Authentication mechanisms/policies</td><td>Secure Access Control → Policy → Authentication</td></tr>
+<tr><td>Risk profiles, access control policies</td><td>Secure Access Control → Policy → Risk Profiles / Access Control</td></tr>
+<tr><td>Mapping rules (JS)</td><td>Secure Access Control → Policy → Mapping Rules</td></tr>
+<tr><td>API protection, clients</td><td>Secure Access Control → API Protection</td></tr>
+<tr><td>Runtime logs/trace</td><td>Monitor → Application Log Files / Federation Runtime → Trace (Module 04)</td></tr>
+</table></div>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Item</th><th>In this environment</th></tr>
+<tr><td>Runtime reached via</td><td><code>https://test.partnerlink.enterprise.com/mga/sps/…</code> (WebSEAL <code>/mga</code> → runtime <code>/sps/…</code>)</td></tr>
+<tr><td>Features actually used</td><td>OAuth/OIDC provider (<code>PartnerLink_OIDC_Test</code>), Authentication Service with an InfoMap mechanism, three mapping rules</td></tr>
+<tr><td>Features not used (opportunities)</td><td>Risk profiles, device fingerprinting, access-control obligations. MFA currently lives only at <code>csl</code>, so <code>ciam</code> cannot independently enforce step-up</td></tr>
+<tr><td>Rules</td><td><code>InfoMap_partnerLoginRedirect.js</code>, <code>partnerauthn_pre_token_generation.js</code>, <code>partnerauthn_post_token_generation.js</code></td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — trusting upstream blindly</div>Because MFA is performed only at <code>csl</code>, <code>ciam</code> issues tokens based on the upstream assertion. The pre-token rule should verify that the upstream session actually carried the expected authentication level (<code>acr</code>/<code>amr</code>) before minting a code, and reject otherwise. See <a href="12-security-audit-hardening.html">Module 12</a>.</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>HTTP 404/“CTGSP…” error on <code>/mga/sps/…</code> after a config change</td><td>Change staged but not deployed, or runtime not reloaded</td>
+<td><pre><code>curl -sk -u admin:$LMI_PW -H "Accept: application/json" https://isva-uat01.internal.net:9443/isam/pending_changes   # non-empty = undeployed changes
+curl -s https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test | jq .authorization_endpoint</code></pre></td><td>Deploy pending changes; confirm runtime restart in LMI.</td></tr>
+<tr><td>Mapping rule error: user lands on a generic error page</td><td>Uncaught JS exception in a rule</td><td>Enable runtime trace for <code>com.tivoli.am.fim.*</code> and read <code>trace.log</code> (Module 04)</td><td>Wrap rule logic in try/catch and log with <code>IDMappingExtUtils.traceString</code>.</td></tr>
+<tr><td><code>/authsvc</code> works but <code>/authorize</code> loops</td><td>Authentication session not carried back to the runtime (cookie not forwarded)</td><td>HAR: compare cookies on the return request</td><td>Ensure WebSEAL junction passes cookies; check <code>Secure</code>/<code>SameSite</code> (Module 08).</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>All runtime capabilities are provided by the tenant; there is no Liberty instance, deploy step or Rhino scripting. Customisation is done with <strong>Access Policies</strong>, <strong>Attribute Mappings/Functions</strong> and <strong>Webhooks</strong>.</div>
+<div class="table-wrap"><table>
+<tr><th>Legacy AAC / Federation</th><th>Verify SaaS</th></tr>
+<tr><td>Runtime (Liberty) + Deploy Pending Changes</td><td>Always-on tenant; changes take effect when saved</td></tr>
+<tr><td>Authentication Service + mechanisms/policies</td><td>Identity Sources + Authentication/Access Policies</td></tr>
+<tr><td>Context-based access (risk profiles, obligations)</td><td>Adaptive access policy: risk scoring, device/IP/geo context, step-up MFA</td></tr>
+<tr><td>Mapping rules (Rhino JS)</td><td>Attribute mappings/functions, custom claims, Pre-Token and Event webhooks</td></tr>
+<tr><td>OAuth/OIDC provider (<code>/sps/oauth/oauth20</code>)</td><td><code>/oidc/endpoint/default/*</code></td></tr>
+</table></div>
+<p>Next: <a href="04-lmi-deployment-ops.html">Module 04 — LMI, deployment &amp; pdadmin</a>.</p>
 </main>
 </body>
 </html>

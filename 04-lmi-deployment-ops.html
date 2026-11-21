@@ -3,14 +3,136 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LMI, Deploy & pdadmin — ISVA Docs</title>
+<title>04 · LMI, Deploy &amp; pdadmin — ISVA Docs</title>
+<meta name="description" content="Local Management Interface, staged vs deployed configuration, runtime tracing and logs, and pdadmin verification commands.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="04" data-stub="true">
+<body data-page="04">
 <main>
-<h1>04 · LMI, Deploy & pdadmin</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>04 · LMI, Deployment &amp; pdadmin</h1>
+<p class="lead">How operators actually change <code>ciam</code>: the Local Management Interface on <code>:9443</code>, why changes don't apply until you <em>Deploy</em>, how to trace the runtime, and how to verify WebSEAL state with <code>pdadmin</code>.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the restaurant order pad</div>
+<p>Editing configuration in the LMI is like writing on an order pad: nothing reaches the kitchen until you press <strong>“send order”</strong>. That send button is <strong>Deploy Pending Changes</strong>. Until then your edits sit in a <em>staging area</em>, and the live runtime keeps serving the old configuration. This protects production from half-finished edits — but it also means “I saved it, why doesn't it work?” is the most common ISVA support question.</p></div>
+<ul>
+<li><strong>LMI</strong>: the web admin console (and REST API) of the appliance, served on port 9443. It is for administrators only.</li>
+<li><strong>Staged vs deployed</strong>: LMI stores edits as pending; <em>Deploy</em> publishes a snapshot to the runtime and WebSEAL and may restart services.</li>
+<li><strong>Snapshots</strong>: point-in-time exports of the whole appliance config; your rollback safety net.</li>
+<li><strong>pdadmin</strong>: the CLI for the policy server: junctions, ACLs, POPs, users, the protected object space.</li>
+</ul>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  ADM([Administrator]) -- "HTTPS :9443 from admin network only" --> LMI
+  subgraph APP[ISVA appliance isva-uat01.internal.net]
+    LMI[LMI + REST API] --> STG[(Staging / pending changes)]
+    STG -- "Deploy Pending Changes" --> LIVE[(Deployed config)]
+    LIVE --> WS[WebSEAL]
+    LIVE --> RT[AAC / Federation runtime]
+    PD[pdadmin / policy server] --> WS
+    SNAP[(Snapshots)]
+  end
+  LMI --> SNAP
+</pre>
+<figcaption>Figure 4.1 — Management plane vs data plane</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — separation of planes</div>
+User traffic (data plane) enters via Akamai → WebSEAL on 443. Management traffic (control plane) uses LMI on 9443 and <code>pdadmin</code>. The two must be network-separated: LMI should <strong>never</strong> be reachable through Akamai or the internet.</div>
+
+<h2 id="low">3. Low-level technical sequence</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor A as Admin
+  participant L as LMI :9443
+  participant ST as Staging area
+  participant RT as Runtime (Liberty)
+  participant WS as WebSEAL
+  A->>L: POST /login (admin credentials)
+  L-->>A: 200 session cookie
+  A->>L: PUT /iam/access/v8/mapping_rules/{id} (new JS body)
+  L->>ST: store as pending change
+  L-->>A: 204
+  A->>L: GET /isam/pending_changes
+  L-->>A: 200 {"changes":[{"id":"...","user":"admin","modified":"..."}],"changesCount":1}
+  A->>L: POST /isam/pending_changes/deploy
+  activate L
+  L->>RT: publish config snapshot
+  RT->>RT: reload (rules/definitions)
+  L->>WS: refresh (if WebSEAL config changed, restart instance)
+  L-->>A: 200 {"result":0}
+  deactivate L
+  A->>L: GET /isam/runtime_components/runtime/v1 (status)
+  L-->>A: 200 running
+</pre>
+<figcaption>Figure 4.2 — Edit, deploy, verify via the REST API (endpoint paths vary by version: verify with the LMI API docs)</figcaption></figure>
+
+<h3>Runtime tracing and logs</h3>
+<ol>
+<li>LMI → <em>Monitor → Application Log Files</em> (or Federation Runtime → Logs). Key files: <code>messages.log</code> (runtime, Liberty), <code>trace.log</code> (when tracing is on), WebSEAL <code>request.log</code>, <code>msg__webseald-default.log</code>.</li>
+<li>Turn on a trace specification, e.g. <code>com.tivoli.am.fim.*=all:com.ibm.security.access.*=all</code>, reproduce <em>once</em>, then turn it back off — tracing is verbose and can expose tokens and attributes.</li>
+<li>Rules can write to the trace with <code>IDMappingExtUtils.traceString("...")</code> (Module 09).</li>
+</ol>
+<div class="callout note"><div class="ttl">Verify on your appliance</div>Trace-spec package names and REST paths differ slightly across 10.0.x/11.x. Use the in-LMI help (<em>?</em> icon) for exact strings.</div>
+
+<h3>pdadmin cheat sheet</h3>
+<pre><code># login
+pdadmin -a sec_master -p '********'
+
+# what is running?
+pdadmin sec_master&gt; server list
+pdadmin sec_master&gt; server task default-webseald-isva-uat01 show /
+
+# junctions
+pdadmin sec_master&gt; server task default-webseald-isva-uat01 show /mga
+pdadmin sec_master&gt; server task default-webseald-isva-uat01 list
+
+# object space, ACL, POP
+pdadmin sec_master&gt; object list /WebSEAL/isva-uat01-default/mga
+pdadmin sec_master&gt; object show /WebSEAL/isva-uat01-default/mga/sps/oauth/oauth20/jwks
+pdadmin sec_master&gt; acl show unauth_public
+pdadmin sec_master&gt; pop show &lt;pop-name&gt;
+
+# reload after changing webseald-*.conf (rarely required; LMI deploy normally does this)
+pdadmin sec_master&gt; server task default-webseald-isva-uat01 reload</code></pre>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>LMI</td><td><code>https://isva-uat01.internal.net:9443</code> (admin network only)</td></tr>
+<tr><td>Config artefacts you will touch</td><td>API Protection Definition <code>PartnerLink_OIDC_Test</code>; client <code>partner_portal</code>; three JS rules; authentication mechanism/policy; WebSEAL ACLs</td></tr>
+<tr><td>Workflow recommendation</td><td>Take snapshot → change → deploy → run <a href="14-troubleshooting-har-playbook.html">curl verification suite</a> → keep or roll back</td></tr>
+<tr><td>Who may deploy</td><td>Admins with LMI “deploy” rights; log every deploy in change management</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — LMI exposure &amp; default creds</div>Confirm 9443 is firewalled from the internet, the default <code>admin</code> password was changed, and mapping rules are reviewed (they run with runtime privileges). Trace logs may contain codes, tokens and PII — restrict and purge them.</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>“I changed it but behaviour is the same”</td><td>Pending changes not deployed</td>
+<td><pre><code>curl -sk -u admin:$LMI_PW -H 'Accept: application/json' \
+  https://isva-uat01.internal.net:9443/isam/pending_changes</code></pre></td><td>Deploy; re-test.</td></tr>
+<tr><td>Deploy succeeded but WebSEAL config not applied</td><td>WebSEAL instance needs restart for some stanza changes</td><td><code>pdadmin … server task default-webseald-isva-uat01 show /</code> and check LMI “Reverse Proxy” status</td><td>Restart the instance from LMI during a window.</td></tr>
+<tr><td>Rule edit causes 500 on <code>/authsvc</code></td><td>JS syntax/runtime error</td><td>Enable trace, reproduce, search <code>trace.log</code> for <code>JavaScript</code>/<code>Rhino</code></td><td>Roll back the snapshot, fix, redeploy.</td></tr>
+<tr><td>pdadmin: “Could not authenticate”</td><td>Wrong domain/user or policy server unreachable</td><td><code>pdadmin -a sec_master -p … server list</code></td><td>Check LDAP/policy server health in LMI dashboard.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>Administration is through the tenant admin console (<code>https://&lt;tenant&gt;.verify.ibm.com</code>) and REST APIs authenticated with an API client (<code>/v1.0/endpoint/default/token</code>, then <code>/v1.0/...</code> resources). No deploy step, no appliance patching.</div>
+<div class="table-wrap"><table>
+<tr><th>Legacy</th><th>Verify SaaS</th></tr>
+<tr><td>LMI :9443</td><td>Admin console + public admin REST APIs (access-controlled by API clients/entitlements)</td></tr>
+<tr><td>Pending changes → Deploy</td><td>Immediate save; use separate tenants (dev/test/prod) and config-as-code (APIs/Terraform) for promotion</td></tr>
+<tr><td>Snapshots</td><td>Export/import and version control of your config scripts</td></tr>
+<tr><td><code>pdadmin</code> ACLs/junctions</td><td>Access policies + application entitlements</td></tr>
+<tr><td>trace.log / messages.log</td><td>Reports → Events/Audit (reports API), plus event webhooks to your SIEM</td></tr>
+</table></div>
+<p>Phase 1 complete. Next: <a href="05-api-protection-definitions.html">Module 05 — API Protection Definitions</a>.</p>
 </main>
 </body>
 </html>
