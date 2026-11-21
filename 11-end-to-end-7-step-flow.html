@@ -27,25 +27,25 @@
 <figure class="diagram">
 <pre class="mermaid">
 flowchart TB
-  U([Browser])
-  P[partner_portal]
-  C[ciam]
-  S[csl]
-  B[partner_portal_backend]
-  U -- "1 login click" --> P
-  P -- "1 redirect /authsvc" --> C
-  C -- "2 delegate /authb/login" --> S
-  S -- "3 password + MFA" --> U
-  S -- "4 redirect /authorize" --> C
-  C -- "5 redirect code+state" --> P
-  P -- "6 code" --> B
-  B -- "7 POST /token, GET /jwks" --> C
+  subgraph FRONT["FRONT CHANNEL (browser)"]
+    direction LR
+    P1["partner_portal<br/>1 start login"] --> C1["ciam<br/>/authsvc"]
+    C1 --> S1["csl<br/>2-3 login + MFA"]
+    S1 --> C2["ciam<br/>4 /authorize<br/>5 mint code"]
+    C2 --> P2["partner_portal<br/>/cb with code"]
+  end
+  subgraph BACK["BACK CHANNEL (server)"]
+    direction LR
+    B1["partner_portal_backend<br/>6 receives code"] --> C3["ciam<br/>7 POST /token"]
+    C3 --> B2["backend<br/>GET /jwks, verify JWT"]
+  end
+  FRONT -- "6 code handed to backend" --> BACK
   classDef front fill:#e8f1ff,stroke:#0f62fe,color:#0b1b3a
   classDef back fill:#eef6ee,stroke:#198038,color:#0b2a14
-  class P,C,S front
-  class B back
+  class P1,C1,S1,C2,P2 front
+  class B1,C3,B2 back
 </pre>
-<figcaption>Figure 11.1 — Blue: front-channel actors. Green: back-channel actor</figcaption></figure>
+<figcaption>Figure 11.1 — Blue: front channel. Green: back channel</figcaption></figure>
 <div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — why two channels</div>The front channel is observable and tamperable by the user, so it carries only non-secret, short-lived values (<code>state</code>, <code>code</code>). Secrets (<code>client_secret</code>, <code>code_verifier</code>) and tokens only travel on the back channel between servers.</div>
 
 <h2 id="low">3. Low-level technical sequence (packet level)</h2>
