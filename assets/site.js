@@ -15,6 +15,7 @@ export const PAGES = [
   { id: '12', file: '12-security-audit-hardening.html', title: 'Security Audit & Hardening', phase: 'Phase 4 — E2E, Security & Migration' },
   { id: '13', file: '13-verify-saas-migration.html', title: 'Migration to Verify SaaS', phase: 'Phase 4 — E2E, Security & Migration' },
   { id: '14', file: '14-troubleshooting-har-playbook.html', title: 'Troubleshooting & HAR Playbook', phase: 'Operations' },
+  { id: 'F', file: 'faq.html', title: 'FAQ & Verification Status', phase: 'Reference' },
   { id: 'G', file: 'glossary.html', title: 'Glossary (A–Z)', phase: 'Reference' },
   { id: 'Q', file: 'cheatsheet.html', title: 'Quick Reference', phase: 'Reference' },
 ];
@@ -199,6 +200,7 @@ const PAGE_INDEX = {
   '12-security-audit-hardening.html': 'audit hardening state nonce pkce encoding redirect_uri ropc acl matrix',
   '13-verify-saas-migration.html': 'migration saas verify tenant identity sources webhooks attribute mapping access policies',
   '14-troubleshooting-har-playbook.html': 'troubleshooting har curl invalid_grant iss mismatch 403 302 jwt debug',
+  'faq.html': 'faq questions developer product owner architect blockers priority verify confidence status risk rollback',
   'glossary.html': 'glossary terms definitions acronyms',
   'cheatsheet.html': 'cheat sheet quick reference endpoints errors headers curl pdadmin',
 };
