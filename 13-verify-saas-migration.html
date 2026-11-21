@@ -3,14 +3,183 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Migration to Verify SaaS — ISVA Docs</title>
+<title>13 · Migration to Verify SaaS — ISVA Docs</title>
+<meta name="description" content="Legacy ISVA to IBM Security Verify (Cloud/SaaS) migration guide: component mapping, replacing JavaScript rules with identity sources, attribute mappings and webhooks, and a cut-over plan.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="13" data-stub="true">
+<body data-page="13">
 <main>
-<h1>13 · Migration to Verify SaaS</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>13 · Legacy ISVA → IBM Security Verify (SaaS) Migration Guide</h1>
+<p class="lead">A one-to-one mapping of every legacy component to its Verify SaaS counterpart, how the three JavaScript rules dissolve into configuration and webhooks, and a low-risk cut-over plan for <code>partner_portal</code>.</p>
+<div id="toc"></div>
+
+<div class="callout note"><div class="ttl">Verify against current IBM docs</div>IBM Security Verify evolves continuously. Menu labels, webhook names and attribute-function capabilities below follow IBM's published product model; confirm exact names in your tenant and in the IBM Security Verify documentation before building.</div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — owning a generator vs buying electricity</div>
+<p>Running ISVA is like running your own power generator: you patch it, tune it, deploy changes, and write custom code to make it fit. IBM Security Verify is the <strong>utility company</strong>: same electricity (OIDC tokens), no generator room. You trade custom code for <strong>configuration</strong>; where configuration can't express your logic, you call out to a small service you host (a <strong>webhook</strong>).</p></div>
+<ul>
+<li><strong>Tenant</strong>: your private instance, <code>https://&lt;tenant&gt;.verify.ibm.com</code>.</li>
+<li><strong>Application</strong>: a registered OIDC client (replaces definition + client).</li>
+<li><strong>Identity Source</strong>: where users authenticate — the tenant's cloud directory or a federated IdP such as <code>csl</code>.</li>
+<li><strong>Access policy</strong>: rules deciding allow / deny / require MFA.</li>
+<li><strong>Attribute mapping &amp; functions</strong>: which profile data becomes which claim.</li>
+<li><strong>Webhooks</strong>: HTTPS calls from Verify to your service (pre-token enrichment, event notifications).</li>
+</ul>
+
+<h2 id="high">2. High-level architecture — 1-to-1 component mapping</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph L[Legacy ISVA - ciam]
+    L1[Akamai + WebSEAL<br/>/mga junction]
+    L2[AAC / Federation runtime]
+    L3[API Protection Definition<br/>PartnerLink_OIDC_Test]
+    L4[Client partner_portal]
+    L5[InfoMap_partnerLoginRedirect.js]
+    L6[pre_token JS]
+    L7[post_token JS]
+    L8[STSUU]
+  end
+  subgraph V[IBM Security Verify tenant]
+    V1[Tenant edge<br/>verify.ibm.com]
+    V2[OIDC provider<br/>/oidc/endpoint/default]
+    V3[Application settings<br/>grants, lifetimes, issuer]
+    V4[Application registration<br/>client id/secret, redirect URIs]
+    V5[Identity Source: csl<br/>OIDC/SAML federation]
+    V6[Attribute mappings/functions<br/>+ Pre-Token webhook]
+    V7[Event webhooks / Reports]
+    V8[User profile attributes]
+  end
+  L1 --> V1
+  L2 --> V2
+  L3 --> V3
+  L4 --> V4
+  L5 --> V5
+  L6 --> V6
+  L7 --> V7
+  L8 --> V8
+</pre>
+<figcaption>Figure 13.1 — Component-to-component mapping</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — what changes for the portal</div>
+For <code>partner_portal</code> and <code>partner_portal_backend</code> the migration is a <strong>configuration change</strong>: a new issuer/discovery URL, new <code>client_id</code>/<code>secret</code>, and new endpoints. If the backend uses a standards-compliant OIDC library with discovery, it's mostly one URL.</div>
+
+<h2 id="low">3. Low-level technical sequence — cut-over</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Adm as Admin
+  participant V as Verify tenant
+  participant S as csl
+  participant B as partner_portal_backend
+  participant P as partner_portal
+  Adm->>V: create Application (OIDC), redirect URIs, PKCE required
+  Adm->>V: create Identity Source -> csl (client id/secret, endpoints, scopes)
+  Adm->>V: map attributes (uid to sub, email, partnerId to partner_id)
+  Adm->>V: access policy (require MFA if csl did not assert it)
+  Adm->>B: set issuer=https://TENANT.verify.ibm.com/oidc/endpoint/default, client creds in vault
+  B->>V: GET /oidc/endpoint/default/.well-known/openid-configuration
+  V-->>B: 200 metadata (issuer, endpoints, jwks_uri)
+  Note over P,B: pilot: 5% of users use feature flag
+  P->>V: authorize (PKCE)
+  V->>S: federate
+  S-->>V: assertion
+  V-->>P: code
+  P->>B: code
+  B->>V: POST /oidc/endpoint/default/token
+  V-->>B: id_token, access_token
+  B->>B: validate against tenant jwks, iss, aud, nonce
+  alt errors above threshold
+    Adm->>P: flip flag back to legacy ciam
+  else healthy
+    Adm->>P: ramp to 100%, decommission ciam
+  end
+</pre>
+<figcaption>Figure 13.2 — Parallel run with a feature flag and instant rollback</figcaption></figure>
+
+<h3>Endpoint cheat sheet</h3>
+<div class="table-wrap"><table>
+<tr><th>Purpose</th><th>Legacy <code>ciam</code></th><th>Verify SaaS</th></tr>
+<tr><td>Discovery</td><td><code>/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test</code></td><td><code>https://&lt;tenant&gt;.verify.ibm.com/oidc/endpoint/default/.well-known/openid-configuration</code></td></tr>
+<tr><td>Authorize</td><td><code>/mga/sps/authsvc</code> → <code>/mga/sps/oauth/oauth20/authorize</code></td><td><code>/oidc/endpoint/default/authorize</code></td></tr>
+<tr><td>Token</td><td><code>/mga/sps/oauth/oauth20/token</code></td><td><code>/oidc/endpoint/default/token</code></td></tr>
+<tr><td>JWKS</td><td><code>/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test</code></td><td><code>/oidc/endpoint/default/jwks</code></td></tr>
+<tr><td>UserInfo</td><td><code>/mga/sps/oauth/oauth20/userinfo</code></td><td><code>/oidc/endpoint/default/userinfo</code></td></tr>
+<tr><td>Introspect / revoke</td><td><code>/mga/sps/oauth/oauth20/introspect</code> …</td><td><code>/oidc/endpoint/default/introspect</code>, <code>/revoke</code></td></tr>
+<tr><td>Issuer (<code>iss</code>)</td><td>Provider ID (was <code>https://localhost/…/15</code>)</td><td><code>https://&lt;tenant&gt;.verify.ibm.com/oidc/endpoint/default</code></td></tr>
+</table></div>
+<pre><code># smoke tests against the tenant
+curl -s https://TENANT.verify.ibm.com/oidc/endpoint/default/.well-known/openid-configuration | jq '{issuer,authorization_endpoint,token_endpoint,jwks_uri,code_challenge_methods_supported}'
+curl -s -o /dev/null -w '%{http_code}\n' "$(curl -s https://TENANT.verify.ibm.com/oidc/endpoint/default/.well-known/openid-configuration | jq -r .jwks_uri)"</code></pre>
+
+<h2 id="env">4. Environment deep dive — replacing the JavaScript rules</h2>
+<div class="table-wrap"><table>
+<tr><th>Legacy artefact</th><th>What it does</th><th>Replacement</th></tr>
+<tr><td><code>InfoMap_partnerLoginRedirect.js</code></td><td>Redirect to <code>csl</code>, manage state/nonce, validate return</td><td><strong>Identity Source</strong> (OIDC or SAML) for <code>csl</code>. Configure its client credentials, authorize/token/JWKS endpoints, scopes and attribute mapping. State/nonce/PKCE handled by the tenant. Optional <strong>IdP discovery</strong> (by email domain) if multiple IdPs.</td></tr>
+<tr><td><code>partnerauthn_pre_token_generation.js</code> — PKCE &amp; scope gating</td><td>Reject bad requests</td><td>Application: <strong>require PKCE</strong>, restrict grant types and allowed scopes</td></tr>
+<tr><td><code>partnerauthn_pre_token_generation.js</code> — add <code>partner_id</code></td><td>Custom claim</td><td><strong>Attribute mapping</strong> (static / profile attribute / <strong>custom attribute function</strong>). For external lookups (e.g. partner DB) use a <strong>Pre-Token webhook</strong> returning extra claims</td></tr>
+<tr><td><code>partnerauthn_post_token_generation.js</code></td><td>Audit</td><td><strong>Event webhook</strong> / Reports API → SIEM (user, application, result, IP, time)</td></tr>
+<tr><td>Upstream MFA assertion check</td><td>Verify <code>acr/amr</code></td><td><strong>Access policy</strong>: require MFA unless the identity source asserted it (via attribute condition)</td></tr>
+</table></div>
+
+<h3>Pre-Token webhook shape (illustrative)</h3>
+<pre><code>// Verify -> your service (HTTPS POST, signed/authenticated per tenant config)
+{ "event": "pre-token", "application": "partner_portal", "user": {"id": "jdoe", "email": "jdoe@example.com"},
+  "claims": {"sub": "jdoe"}, "request": {"scope": "openid", "ip": "203.0.113.10"} }
+// your service -> Verify
+{ "claims": {"partner_id": "P-1001"} }          // allowlisted keys only; respond fast (tight timeout)</code></pre>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — migration risks</div>
+<ul>
+<li><strong>Issuer change</strong>: <code>iss</code>/<code>aud</code> change, so old tokens won't validate on the new backend config — run both validators during the pilot.</li>
+<li><strong>User identifiers</strong>: ensure <code>sub</code> is stable (use the same attribute as before) or accounts will fork.</li>
+<li><strong>Secrets</strong>: new client secret in a vault; do not reuse the legacy secret.</li>
+<li><strong>Webhook endpoints</strong> are new attack surface: authenticate, rate-limit, validate payloads, allowlist claims.</li>
+<li><strong>Data residency / privacy</strong>: confirm tenant region and attribute minimisation.</li>
+</ul></div>
+
+<h3>Migration plan</h3>
+<ol>
+<li><strong>Inventory</strong>: clients, redirect URIs, scopes, claims consumed (decode real tokens), rule behaviours, WebSEAL ACLs.</li>
+<li><strong>Fix first</strong>: apply Module 12 hardening on legacy so the baseline is sound.</li>
+<li><strong>Build</strong>: tenant, <code>csl</code> identity source, application, mappings, policies; capture as scripts/APIs.</li>
+<li><strong>Test</strong>: run the curl suite and HAR comparison (Module 14) against both issuers.</li>
+<li><strong>Pilot</strong>: feature-flag a small cohort; monitor errors, latency, MFA prompts.</li>
+<li><strong>Cut over</strong>, keep legacy read-only for a rollback window; then decommission <code>ciam</code> and close Akamai/ACL exceptions.</li>
+</ol>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td><code>redirect_uri_mismatch</code> at tenant</td><td>Redirect URI not registered exactly</td><td>HAR first request vs application config</td><td>Add exact URI.</td></tr>
+<tr><td>Backend: <em>issuer mismatch</em></td><td>Still configured with old issuer</td>
+<td><pre><code>curl -s https://TENANT.verify.ibm.com/oidc/endpoint/default/.well-known/openid-configuration | jq -r .issuer</code></pre></td><td>Use discovery-derived issuer.</td></tr>
+<tr><td>Missing <code>partner_id</code> claim</td><td>Attribute not mapped / webhook timeout</td><td>Decode token; check webhook logs</td><td>Add mapping; make webhook fast + fail-safe policy.</td></tr>
+<tr><td>Federation to <code>csl</code> fails</td><td>Wrong endpoints/secret/callback URL on <code>csl</code></td><td>Tenant sign-in event + <code>csl</code> logs</td><td>Register tenant callback in <code>csl</code>.</td></tr>
+<tr><td>Users prompted for MFA twice</td><td>Access policy ignores upstream MFA assertion</td><td>Policy evaluation event</td><td>Condition on asserted authentication method.</td></tr>
+<tr><td>Duplicate users after cut-over</td><td>Unstable <code>sub</code> mapping</td><td>Compare old vs new <code>sub</code></td><td>Map same attribute; pre-provision/link accounts.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping — master table</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>The complete side-by-side. Every legacy component has a home.</div>
+<div class="table-wrap"><table>
+<tr><th>Legacy ISVA component</th><th>Role</th><th>Verify SaaS native equivalent</th></tr>
+<tr><td>Akamai EdgeSuite (WAF/allowlist)</td><td>Perimeter</td><td>IBM-managed edge (optional customer CDN with custom domain)</td></tr>
+<tr><td>WebSEAL</td><td>Reverse proxy, TLS, sessions, ACL/POP</td><td>Tenant service + session management; access policies replace ACL/POP</td></tr>
+<tr><td><code>/mga</code> junction, <code>iv-user</code>/<code>iv-creds</code></td><td>Route to runtime, propagate identity</td><td>Not needed. Identity travels in OIDC tokens/<code>userinfo</code>; header-based apps need a PEP/gateway</td></tr>
+<tr><td>AAC / Federation runtime</td><td>Authentication + OAuth/OIDC engine</td><td>Verify authentication + OIDC provider <code>/oidc/endpoint/default/*</code></td></tr>
+<tr><td>API Protection Definition <code>PartnerLink_OIDC_Test</code></td><td>Grants, lifetimes, issuer, keys</td><td>Application (OIDC) settings; tenant issuer and managed keys</td></tr>
+<tr><td>OIDC client <code>partner_portal</code></td><td>Registration</td><td>Application client credentials + redirect URIs</td></tr>
+<tr><td>Authentication mechanism/policy</td><td>Login steps</td><td>Identity sources + access policies</td></tr>
+<tr><td><code>STSUU</code></td><td>Identity/claims carrier</td><td>User profile + attribute mappings/functions</td></tr>
+<tr><td><code>InfoMap_partnerLoginRedirect.js</code></td><td>Federate to <code>csl</code></td><td>Identity Source (OIDC/SAML)</td></tr>
+<tr><td><code>partnerauthn_pre_token_generation.js</code></td><td>Gate and enrich</td><td>PKCE/scope settings, attribute mappings, Pre-Token webhook</td></tr>
+<tr><td><code>partnerauthn_post_token_generation.js</code></td><td>Audit</td><td>Event webhooks, reports</td></tr>
+<tr><td>LMI + Deploy Pending Changes</td><td>Admin</td><td>Admin console/APIs, immediate save, config-as-code</td></tr>
+<tr><td><code>trace.log</code>, <code>request.log</code></td><td>Diagnostics</td><td>Reports / event streaming</td></tr>
+</table></div>
+<p>Next: <a href="14-troubleshooting-har-playbook.html">Module 14 — Troubleshooting &amp; HAR playbook</a>.</p>
 </main>
 </body>
 </html>
