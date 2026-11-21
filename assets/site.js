@@ -188,7 +188,7 @@ function buildFooter() {
       <a href="${REPO}/edit/main/${cur.file}" rel="noopener">✏️ Suggest an edit to this page</a>
       <a href="${REPO}/issues/new?template=doc-correction.yml&title=${encodeURIComponent('[' + cur.file + '] ')}" rel="noopener">🐞 Report an error or doubt</a>
       <a href="faq.html#status">🧐 What is verified vs. to-verify?</a></div>
-    <p>Unofficial community documentation, not affiliated with or endorsed by IBM. IBM, IBM Security Verify Access and IBM Security Verify are trademarks of International Business Machines Corporation. Names, hosts and IDs are placeholders. Never paste real secrets, tokens or HAR files into an issue.</p>`);
+    <p>Unofficial community documentation, not affiliated with or endorsed by IBM. IBM, IBM Security Verify Access and IBM Security Verify are trademarks of International Business Machines Corporation. Licensed under the <a href="${REPO}/blob/main/LICENSE" rel="noopener">MIT License</a>. Names, hosts and IDs are placeholders. Never paste real secrets, tokens or HAR files into an issue.</p>`);
   main.append(f);
 }
 function favicon() {

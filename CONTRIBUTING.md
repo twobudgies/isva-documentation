@@ -19,3 +19,6 @@ Mermaid in `<pre class="mermaid">`. Avoid raw `;` in sequence messages (use `#59
 
 ## Reporting problems
 Use the "Correction or doubt" issue form. Include product/version and how you verified it, without secrets.
+
+## License
+By contributing you agree that your contribution is licensed under the repository's [MIT License](LICENSE).
