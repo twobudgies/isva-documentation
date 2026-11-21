@@ -63,8 +63,10 @@ function buildTopbar() {
   const t = el('div', { id: 'topbar' });
   const grp = cur.phase;
   t.innerHTML = `<button id="menuBtn" aria-label="Toggle menu">☰</button>
-    <span><a href="index.html">Home</a> › ${grp} › <strong>${cur.title}</strong></span><span class="grow"></span>
-    <button id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>`;
+    <span><a href="index.html">Home</a> › ${grp} › <strong>${cur.title}</strong><span id="here"></span></span><span class="grow"></span>
+    <button id="valsBtn" class="tbtn" title="Replace sample hosts and IDs in all examples with your own (stored only in your browser)">⚙ My values</button>
+    <button id="printBtn" class="tbtn" title="Print or save as PDF" aria-label="Print">🖨</button>
+    <button id="themeBtn" class="tbtn" title="Toggle theme" aria-label="Toggle theme">◐</button>`;
   document.getElementById('sidebar').after(t);
   document.getElementById('menuBtn').onclick = () => document.body.classList.toggle('menu-open');
   document.getElementById('themeBtn').onclick = () => {
@@ -74,7 +76,57 @@ function buildTopbar() {
     try { localStorage.setItem('theme', r.dataset.theme); } catch (e) {}
     location.reload();
   };
+  document.getElementById('printBtn').onclick = () => print();
   document.querySelector('main').addEventListener('click', () => document.body.classList.remove('menu-open'));
+}
+
+// Shows the section currently being read in the top bar.
+function trackSection() {
+  const here = document.getElementById('here'); const hs = [...document.querySelectorAll('main h2[id]')];
+  if (!here || !hs.length || !('IntersectionObserver' in window)) return;
+  const set = h => { here.innerHTML = h ? ' › <em>' + h.textContent.replace(/#$/, '').trim() + '</em>' : ''; };
+  const io = new IntersectionObserver(es => {
+    es.forEach(e => { if (e.isIntersecting) set(e.target); });
+  }, { rootMargin: '-60px 0px -75% 0px' });
+  hs.forEach(h => io.observe(h));
+  addEventListener('scroll', () => { if (scrollY < 200) set(null); }, { passive: true });
+}
+
+// "My values": swap sample hostnames/IDs in every example for the reader's own (client-side only).
+const VAL_FIELDS = [
+  { k: 'publicHost', label: 'Public host (ciam)', def: 'test.partnerlink.enterprise.com' },
+  { k: 'applianceHost', label: 'Appliance / LMI host', def: 'isva-uat01.internal.net' },
+  { k: 'clientId', label: 'Client ID', def: '<partner_portal_clientid>' },
+  { k: 'cslHost', label: 'Upstream IdP host (csl)', def: 'csl.example.com' },
+  { k: 'portalHost', label: 'Portal host', def: 'portal.example.com' },
+  { k: 'tenant', label: 'Verify tenant name', def: 'TENANT', alt: ['<tenant>'] },
+];
+function loadVals() { try { return JSON.parse(localStorage.getItem('myvals') || '{}'); } catch (e) { return {}; } }
+function applyVals() {
+  const v = loadVals(); const pairs = [];
+  VAL_FIELDS.forEach(f => { const nv = (v[f.k] || '').trim(); if (nv && nv !== f.def) [f.def, ...(f.alt || [])].forEach(d => pairs.push([d, nv])); });
+  if (!pairs.length) return;
+  const w = document.createTreeWalker(document.querySelector('main'), NodeFilter.SHOW_TEXT, {
+    acceptNode: n => n.parentElement.closest('.diagram, script, style, textarea, input, .modal') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
+  nodes.forEach(n => { let t = n.nodeValue; pairs.forEach(([a, b]) => { if (t.includes(a)) t = t.split(a).join(b); }); if (t !== n.nodeValue) n.nodeValue = t; });
+  const btn = document.getElementById('valsBtn'); if (btn) btn.classList.add('on');
+}
+function buildValsPanel() {
+  const btn = document.getElementById('valsBtn'); if (!btn) return;
+  const v = loadVals();
+  const p = el('div', { id: 'valsPanel', role: 'dialog', 'aria-label': 'My values' }, `<b>⚙ My values</b>
+    <p>Replace the sample names in every code example and table with yours. Stored only in this browser; nothing is sent anywhere. Diagrams keep the sample names.</p>
+    ${VAL_FIELDS.map(f => `<label>${f.label}<input data-k="${f.k}" maxlength="120" placeholder="${f.def.replace(/</g, '&lt;')}" value="${(v[f.k] || '').replace(/"/g, '&quot;')}"></label>`).join('')}
+    <div class="row"><button type="button" id="valsSave">Save &amp; apply</button><button type="button" id="valsReset">Reset</button><button type="button" id="valsClose">Close</button></div>`);
+  document.body.append(p);
+  btn.onclick = () => p.classList.toggle('open');
+  document.getElementById('valsClose').onclick = () => p.classList.remove('open');
+  document.getElementById('valsSave').onclick = () => {
+    const o = {}; p.querySelectorAll('input').forEach(i => { const x = i.value.trim(); if (x) o[i.dataset.k] = x; });
+    try { localStorage.setItem('myvals', JSON.stringify(o)); } catch (e) {} location.reload();
+  };
+  document.getElementById('valsReset').onclick = () => { try { localStorage.removeItem('myvals'); } catch (e) {} location.reload(); };
 }
 
 
@@ -270,6 +322,11 @@ async function renderMermaid() {
   });
 }
 
+function a11y() {
+  const m = document.querySelector('main'); m.id = 'main'; m.setAttribute('tabindex', '-1');
+  document.body.prepend(el('a', { class: 'skip', href: '#main' }, 'Skip to content'));
+}
+
 function decorate() {
   document.querySelectorAll('main h2, main h3').forEach(h => {
     if (!h.id) h.id = h.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
@@ -285,11 +342,11 @@ function decorate() {
 function addCopyButtons() {
   document.querySelectorAll('pre:not(.mermaid)').forEach(pre => {
     const b = el('button', { type: 'button', style: 'position:absolute;top:6px;right:6px;font-size:.7rem;padding:2px 8px;border-radius:6px;border:1px solid #334;background:#1e293b;color:#cbd5e1;cursor:pointer' }, 'Copy');
-    b.onclick = () => { navigator.clipboard && navigator.clipboard.writeText(pre.innerText.replace(/Copy$/, '')); b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy', 1200); };
+    b.onclick = () => { navigator.clipboard && navigator.clipboard.writeText(pre.innerText.replace(/(Copy|Copied)\s*$/, '').replace(/^pdadmin sec_master> ?/gm, '').replace(/^\$ /gm, '').trimEnd()); b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy', 1200); };
     pre.append(b);
   });
 }
 
 try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-tagTables(); buildAids(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); decorate();
+tagTables(); buildAids(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); decorate(); a11y(); trackSection(); buildValsPanel(); applyVals();
 renderMermaid();
