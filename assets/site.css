@@ -158,3 +158,22 @@ h2:hover .anchor,h3:hover .anchor,.anchor:focus{opacity:1}
 @media(max-width:700px){.glance{grid-template-columns:1fr}}
 
 .toc ul{list-style:none;margin:.4em 0;padding-left:0}.toc li{margin:.15em 0}
+
+/* Orientation, personalization, accessibility */
+#topbar .tbtn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:.85rem}
+#topbar .tbtn.on{border-color:var(--brand);color:var(--brand)}
+#here em{color:var(--ink);font-style:normal;font-weight:600;max-width:34ch;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+#valsPanel{position:fixed;top:56px;right:16px;width:min(360px,calc(100vw - 32px));max-height:calc(100vh - 80px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:14px 16px;z-index:70;display:none}
+#valsPanel.open{display:block}
+#valsPanel p{font-size:.82rem;color:var(--muted);margin:.4em 0 .8em}
+#valsPanel label{display:block;font-size:.78rem;color:var(--muted);margin-top:8px}
+#valsPanel input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:.85rem ui-monospace,Menlo,monospace}
+#valsPanel .row{display:flex;gap:8px;margin-top:12px}
+#valsPanel .row button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:6px 10px;cursor:pointer}
+#valsPanel #valsSave{background:var(--brand);color:var(--brand-ink);border-color:var(--brand);font-weight:600}
+.skip{position:absolute;left:-999px;top:8px;background:var(--brand);color:var(--brand-ink);padding:8px 14px;border-radius:8px;z-index:200}
+.skip:focus{left:8px}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+main:focus{outline:none}
+@media(max-width:900px){#here{display:none}#topbar .tbtn#printBtn{display:none}}
+@media print{#valsPanel,.skip{display:none!important}}
