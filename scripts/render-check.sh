@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.." || exit 1
 PORT=8765; python3 -m http.server $PORT >/dev/null 2>&1 & SRV=$!; sleep 1
 fail=0
 for f in *.html; do
+  [ "$f" = "404.html" ] && continue   # uses <base href> for GitHub Pages; only meaningful when hosted
   dom=$("$CHROME" --headless=new --disable-gpu --virtual-time-budget=20000 --dump-dom "http://localhost:$PORT/$f" 2>/dev/null)
   want=$(grep -c 'class="mermaid"' "$f"); got=$(grep -o '<svg[^>]*id="mermaid-' <<<"$dom" | wc -l | tr -d ' ')
   side=$(grep -c 'id="sidebar"' <<<"$dom"); act=$(grep -c 'nav active' <<<"$dom"); pager=$(grep -c 'class="pager"' <<<"$dom")
