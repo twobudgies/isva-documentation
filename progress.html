@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Progress Tracker — ISVA Docs</title>
+<link rel="stylesheet" href="assets/site.css">
+<script type="module" src="assets/site.js"></script>
+</head>
+<body data-page="P">
+<main>
+<h1>Progress Tracker</h1>
+<p class="lead">Live status of every module, branch and deliverable. Status values come from the page manifest in <code>assets/site.js</code>; the detailed checklist lives in <a href="TODO.md">TODO.md</a>.</p>
+<div class="bar-out"><div class="bar-in" id="overallBar"></div></div>
+<p id="overallTxt"></p>
+<h2 id="modules">Modules &amp; branches</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Page</th><th>Phase</th><th>Feature branch</th><th>Status</th></tr></thead>
+<tbody id="progressRows"></tbody></table></div>
+<h2 id="reading">Your reading progress</h2>
+<p>Tick modules as you finish them. Stored only in your browser (<code>localStorage</code>).</p>
+<div class="callout beginner" id="readRows"></div>
+<h2 id="process">Delivery workflow</h2>
+<figure class="diagram">
+<pre class="mermaid">
+gitGraph
+  commit id: "initial"
+  branch feat/site-scaffold-and-nav
+  commit id: "scaffold"
+  checkout main
+  merge feat/site-scaffold-and-nav
+  branch feat/phase1-core-isva
+  commit id: "modules 01-04"
+  checkout main
+  merge feat/phase1-core-isva
+  branch feat/phase2-oauth-oidc
+  commit id: "modules 05-08"
+  checkout main
+  merge feat/phase2-oauth-oidc
+  branch feat/phase3-custom-rules-stsuu
+  commit id: "modules 09-10"
+  checkout main
+  merge feat/phase3-custom-rules-stsuu
+  branch feat/phase4-e2e-security-migration
+  commit id: "modules 11-13"
+  checkout main
+  merge feat/phase4-e2e-security-migration
+  branch feat/troubleshooting-and-qa
+  commit id: "module 14 + QA"
+  checkout main
+  merge feat/troubleshooting-and-qa
+</pre>
+<figcaption>Every branch is verified (links, Mermaid syntax) before a <code>--no-ff</code> merge to <code>main</code>.</figcaption></figure>
+</main>
+</body>
+</html>
