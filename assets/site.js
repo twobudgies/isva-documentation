@@ -1,26 +1,24 @@
 // Shared site chrome: sidebar, breadcrumb, pager, search, Mermaid rendering. No build step.
 export const PAGES = [
-  { id: '00', file: 'index.html', title: 'Overview & Roadmap', phase: 'Start Here', branch: 'feat/site-scaffold-and-nav', status: 'done' },
-  { id: '01', file: '01-iam-oidc-foundations.html', title: 'IAM & OIDC Foundations', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'done' },
-  { id: '02', file: '02-webseal-junctions.html', title: 'WebSEAL, Akamai & Junctions', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'done' },
-  { id: '03', file: '03-aac-federation-runtime.html', title: 'AAC & Federation Runtime', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'done' },
-  { id: '04', file: '04-lmi-deployment-ops.html', title: 'LMI, Deploy & pdadmin', phase: 'Phase 1 — Core ISVA', branch: 'feat/phase1-core-isva', status: 'done' },
-  { id: '05', file: '05-api-protection-definitions.html', title: 'API Protection Definitions', phase: 'Phase 2 — OAuth & OIDC', branch: 'feat/phase2-oauth-oidc', status: 'done' },
-  { id: '06', file: '06-oauth-oidc-clients.html', title: 'OAuth/OIDC Clients & PKCE', phase: 'Phase 2 — OAuth & OIDC', branch: 'feat/phase2-oauth-oidc', status: 'done' },
-  { id: '07', file: '07-metadata-jwks-discovery.html', title: 'Metadata & JWKS Discovery', phase: 'Phase 2 — OAuth & OIDC', branch: 'feat/phase2-oauth-oidc', status: 'done' },
-  { id: '08', file: '08-authsvc-mechanisms-policies.html', title: 'authsvc, Mechanisms & Policies', phase: 'Phase 2 — OAuth & OIDC', branch: 'feat/phase2-oauth-oidc', status: 'done' },
-  { id: '09', file: '09-infomap-mapping-rules.html', title: 'InfoMap & Mapping Rules (JS)', phase: 'Phase 3 — Custom Rules & STSUU', branch: 'feat/phase3-custom-rules-stsuu', status: 'done' },
-  { id: '10', file: '10-stsuu-session-claims.html', title: 'STSUU & Session Claims', phase: 'Phase 3 — Custom Rules & STSUU', branch: 'feat/phase3-custom-rules-stsuu', status: 'done' },
-  { id: '11', file: '11-end-to-end-7-step-flow.html', title: 'End-to-End 7-Step Flow', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
-  { id: '12', file: '12-security-audit-hardening.html', title: 'Security Audit & Hardening', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
-  { id: '13', file: '13-verify-saas-migration.html', title: 'Migration to Verify SaaS', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
-  { id: '14', file: '14-troubleshooting-har-playbook.html', title: 'Troubleshooting & HAR Playbook', phase: 'Operations', branch: 'feat/troubleshooting-and-qa', status: 'done' },
-  { id: 'G', file: 'glossary.html', title: 'Glossary (A–Z)', phase: 'Reference', branch: 'feat/ref-glossary-cheatsheet', status: 'done' },
-  { id: 'Q', file: 'cheatsheet.html', title: 'Quick Reference', phase: 'Reference', branch: 'feat/ref-glossary-cheatsheet', status: 'done' },
-  { id: 'P', file: 'progress.html', title: 'Progress Tracker', phase: 'Operations', branch: 'feat/site-scaffold-and-nav', status: 'done' },
+  { id: '00', file: 'index.html', title: 'Overview & Roadmap', phase: 'Start Here' },
+  { id: '01', file: '01-iam-oidc-foundations.html', title: 'IAM & OIDC Foundations', phase: 'Phase 1 — Core ISVA' },
+  { id: '02', file: '02-webseal-junctions.html', title: 'WebSEAL, Akamai & Junctions', phase: 'Phase 1 — Core ISVA' },
+  { id: '03', file: '03-aac-federation-runtime.html', title: 'AAC & Federation Runtime', phase: 'Phase 1 — Core ISVA' },
+  { id: '04', file: '04-lmi-deployment-ops.html', title: 'LMI, Deploy & pdadmin', phase: 'Phase 1 — Core ISVA' },
+  { id: '05', file: '05-api-protection-definitions.html', title: 'API Protection Definitions', phase: 'Phase 2 — OAuth & OIDC' },
+  { id: '06', file: '06-oauth-oidc-clients.html', title: 'OAuth/OIDC Clients & PKCE', phase: 'Phase 2 — OAuth & OIDC' },
+  { id: '07', file: '07-metadata-jwks-discovery.html', title: 'Metadata & JWKS Discovery', phase: 'Phase 2 — OAuth & OIDC' },
+  { id: '08', file: '08-authsvc-mechanisms-policies.html', title: 'authsvc, Mechanisms & Policies', phase: 'Phase 2 — OAuth & OIDC' },
+  { id: '09', file: '09-infomap-mapping-rules.html', title: 'InfoMap & Mapping Rules (JS)', phase: 'Phase 3 — Custom Rules & STSUU' },
+  { id: '10', file: '10-stsuu-session-claims.html', title: 'STSUU & Session Claims', phase: 'Phase 3 — Custom Rules & STSUU' },
+  { id: '11', file: '11-end-to-end-7-step-flow.html', title: 'End-to-End 7-Step Flow', phase: 'Phase 4 — E2E, Security & Migration' },
+  { id: '12', file: '12-security-audit-hardening.html', title: 'Security Audit & Hardening', phase: 'Phase 4 — E2E, Security & Migration' },
+  { id: '13', file: '13-verify-saas-migration.html', title: 'Migration to Verify SaaS', phase: 'Phase 4 — E2E, Security & Migration' },
+  { id: '14', file: '14-troubleshooting-har-playbook.html', title: 'Troubleshooting & HAR Playbook', phase: 'Operations' },
+  { id: 'G', file: 'glossary.html', title: 'Glossary (A–Z)', phase: 'Reference' },
+  { id: 'Q', file: 'cheatsheet.html', title: 'Quick Reference', phase: 'Reference' },
 ];
 
-const STATUS = { done: '✅', wip: '🚧', todo: '⬜' };
 const here = (location.pathname.split('/').pop() || 'index.html');
 const idx = PAGES.findIndex(p => p.file === here);
 const cur = PAGES[idx] || PAGES[0];
@@ -118,7 +116,7 @@ function buildAids() {
 
 function buildPager() {
   const main = document.querySelector('main');
-  const seq = PAGES.filter(p => p.id !== 'P');
+  const seq = PAGES;
   const i = seq.findIndex(p => p.file === cur.file);
   const prev = i > 0 ? seq[i - 1] : null, next = i >= 0 && i < seq.length - 1 ? seq[i + 1] : null;
   if (i < 0) return;
@@ -201,7 +199,6 @@ const PAGE_INDEX = {
   '12-security-audit-hardening.html': 'audit hardening state nonce pkce encoding redirect_uri ropc acl matrix',
   '13-verify-saas-migration.html': 'migration saas verify tenant identity sources webhooks attribute mapping access policies',
   '14-troubleshooting-har-playbook.html': 'troubleshooting har curl invalid_grant iss mismatch 403 302 jwt debug',
-  'progress.html': 'progress todo status tracker',
   'glossary.html': 'glossary terms definitions acronyms',
   'cheatsheet.html': 'cheat sheet quick reference endpoints errors headers curl pdadmin',
 };
@@ -291,22 +288,6 @@ function addCopyButtons() {
   });
 }
 
-function fillProgress() {
-  const bar = document.getElementById('overallBar'); const txt = document.getElementById('overallTxt');
-  const mods = PAGES.filter(p => /^\d\d$/.test(p.id) && p.id !== '00');
-  const done = mods.filter(p => p.status === 'done').length;
-  if (bar) bar.style.width = Math.round(done / mods.length * 100) + '%';
-  if (txt) txt.textContent = `${done} of ${mods.length} learning modules complete`;
-  const tb = document.getElementById('progressRows');
-  if (tb) tb.innerHTML = PAGES.map(p => `<tr><td>${p.id}</td><td><a href="${p.file}">${p.title}</a></td><td>${p.phase}</td><td><code>${p.branch}</code></td><td><span class="badge ${p.status}">${STATUS[p.status]} ${p.status}</span></td></tr>`).join('');
-  const rd = document.getElementById('readRows');
-  if (rd) {
-    let read = {}; try { read = JSON.parse(localStorage.getItem('read') || '{}'); } catch (e) {}
-    rd.innerHTML = mods.map(p => `<label style="display:block"><input type="checkbox" data-f="${p.file}" ${read[p.file] ? 'checked' : ''}> ${p.id} · ${p.title}</label>`).join('');
-    rd.addEventListener('change', e => { read[e.target.dataset.f] = e.target.checked; try { localStorage.setItem('read', JSON.stringify(read)); } catch (x) {} });
-  }
-}
-
 try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-tagTables(); buildAids(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); fillProgress(); decorate();
+tagTables(); buildAids(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); decorate();
 renderMermaid();
