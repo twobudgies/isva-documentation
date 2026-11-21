@@ -3,14 +3,143 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WebSEAL, Akamai & Junctions — ISVA Docs</title>
+<title>02 · WebSEAL, Akamai &amp; Junctions — ISVA Docs</title>
+<meta name="description" content="WebSEAL reverse proxy, Akamai EdgeSuite perimeter, TLS (pdsrv.kdb), protected object space ACLs/POPs, PD-S-SESSION-ID and the /mga junction.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="02" data-stub="true">
+<body data-page="02">
 <main>
-<h1>02 · WebSEAL, Akamai & Junctions</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>02 · WebSEAL, Akamai &amp; Junctions</h1>
+<p class="lead">The “front door” of <code>ciam</code>: how a request travels from the internet through Akamai EdgeSuite and WebSEAL, how WebSEAL decides who may pass (ACLs and POPs), how sessions are tracked, and how the <code>/mga</code> junction hands requests to the AAC/federation runtime.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — office building security</div>
+<p>Akamai is the <strong>street-level guard</strong>: it blocks obviously bad visitors and only lets approved addresses reach certain doors. WebSEAL is the <strong>reception desk inside</strong>: it checks your badge (session cookie), looks up which rooms you're allowed into (ACLs), and escorts you down a corridor (a <em>junction</em>) to the right department. The department never checks your ID again — reception whispers who you are in a sealed note (HTTP headers <code>iv-user</code>, <code>iv-creds</code>).</p></div>
+<ul>
+<li><strong>Reverse proxy</strong>: a server that accepts requests on behalf of back-end servers. Clients never see the back end.</li>
+<li><strong>TLS termination</strong>: WebSEAL decrypts HTTPS using its certificate from a key database (<code>pdsrv.kdb</code>) and typically re-encrypts to the back end.</li>
+<li><strong>Junction</strong>: a mapping from a URL prefix (e.g. <code>/mga</code>) in WebSEAL's namespace to a back-end server. Everything under <code>/mga/…</code> is forwarded to the AAC/federation runtime.</li>
+<li><strong>Protected Object Space (POS)</strong>: a tree of every URL WebSEAL can serve (<code>/WebSEAL/&lt;host&gt;-default/mga/…</code>). ACLs and POPs are <em>attached</em> to nodes of this tree.</li>
+<li><strong>ACL</strong>: who may do what on a node (e.g. <code>unauthenticated</code> may <code>T</code>raverse and <code>r</code>ead). <strong>POP</strong>: extra conditions (IP restrictions, time of day, quality of protection, audit level).</li>
+<li><strong>Session</strong>: after login WebSEAL sets the cookie <code>PD-S-SESSION-ID</code> (opaque handle to a server-side cache entry).</li>
+</ul>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  I([Internet client<br/>browser or partner_portal_backend]) --> AK
+  subgraph Edge[Akamai EdgeSuite]
+    AK[CDN + WAF<br/>IP allowlist, rate limit, bot rules]
+  end
+  AK -- "HTTPS, origin hostname test.partnerlink.enterprise.com" --> WS
+  subgraph App[ISVA appliance isva-uat01.internal.net]
+    WS[WebSEAL instance<br/>TLS pdsrv.kdb, sessions, ACL/POP]
+    J{{/mga junction}}
+    RT[AAC / Federation runtime<br/>WebSphere Liberty]
+    LMI[LMI :9443<br/>admin only]
+  end
+  WS --> J --> RT
+  WS -. never exposed .- LMI
+</pre>
+<figcaption>Figure 2.1 — Perimeter and appliance layers</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — two layers of access control</div>
+Layer 1 (Akamai) filters by network and request shape <em>before</em> traffic reaches the appliance; layer 2 (WebSEAL ACL/POP) filters by identity and object. A public endpoint such as <code>/jwks</code> must pass <strong>both</strong>. A 403 with “Reference #” from <code>errors.edgesuite.net</code> is Akamai; a 302 to a login page or a WebSEAL HTML error (e.g. <code>HPDIA…</code>) is WebSEAL.</div>
+
+<h2 id="low">3. Low-level technical sequence</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor B as Client (browser)
+  participant A as Akamai EdgeSuite
+  participant W as WebSEAL
+  participant J as /mga junction
+  participant R as AAC runtime (Liberty)
+  B->>A: GET /mga/sps/authsvc?client=CID&scope=openid&state=789<br/>Host: test.partnerlink.enterprise.com
+  activate A
+  A->>A: WAF rules, IP allowlist, bot checks
+  alt blocked by Akamai
+    A-->>B: 403 Access Denied (errors.edgesuite.net Reference #18.xxxx)
+  else allowed
+    A->>W: GET /mga/sps/authsvc... (X-Forwarded-For: client IP, Via, True-Client-IP)
+    deactivate A
+    activate W
+    W->>W: TLS terminated with pdsrv.kdb cert, lookup PD-S-SESSION-ID
+    W->>W: ACL check on /WebSEAL/host-default/mga/sps/authsvc for unauthenticated
+    alt ACL denies unauth
+      W-->>B: 302 to login form or 403 HPDIA error
+    else permitted
+      W->>J: forward (no session yet)
+      J->>R: GET /sps/authsvc...<br/>X-Forwarded-Host: test.partnerlink.enterprise.com<br/>(authenticated users also get iv-user: jdoe, iv-creds: BASE64)
+      activate R
+      R-->>W: 302 Location: csl login URL<br/>Set-Cookie: AUTHSVC-state=...
+      deactivate R
+      W-->>B: 302 + Set-Cookie: PD-S-SESSION-ID=... #59; Path=/ #59; Secure #59; HttpOnly
+      deactivate W
+    end
+  end
+</pre>
+<figcaption>Figure 3.1 — Request path with both decision points</figcaption></figure>
+<div class="callout note"><div class="ttl">Header detail</div>
+<code>iv-user</code> = the authenticated user name. <code>iv-creds</code> = a Base64 blob with the full credential (groups, extended attributes) that back ends can decode with the ISVA SDK. <code>iv-groups</code>, <code>iv-remote-address</code> and <code>iv_jct</code> are common companions. Which are injected depends on the junction flags (<code>-c</code>) — <em>verify on your appliance</em> with <code>pdadmin … server task … show /mga</code>.</div>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Item</th><th>Value / behaviour in this environment</th></tr>
+<tr><td>Public hostname</td><td><code>test.partnerlink.enterprise.com</code> (CNAME to Akamai EdgeSuite, origin = WebSEAL)</td></tr>
+<tr><td>Appliance</td><td><code>isva-uat01.internal.net</code>, LMI on <code>:9443</code> — <strong>must not</strong> be reachable from the internet</td></tr>
+<tr><td>TLS</td><td>WebSEAL certificate in <code>pdsrv.kdb</code> (stash <code>pdsrv.sth</code>); configured by <code>webseal-cert-keyfile</code> in <code>[ssl]</code> of the instance config</td></tr>
+<tr><td>Junction</td><td><code>/mga</code> → AAC/federation runtime. Serves <code>/mga/sps/authsvc</code>, <code>/mga/sps/oauth/oauth20/*</code></td></tr>
+<tr><td>Cookie</td><td><code>PD-S-SESSION-ID</code> issued after authentication; <code>/mga</code> flows also use runtime cookies</td></tr>
+<tr><td>Public (unauth) endpoints required</td><td><code>/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test</code> and <code>/jwks/PartnerLink_OIDC_Test</code> for <code>partner_portal_backend</code>; <code>/token</code> is authenticated by <code>client_secret</code>, not by a WebSEAL session</td></tr>
+<tr><td>Edge allowlist</td><td>Akamai must allow <code>partner_portal_backend</code> egress IPs to the above paths</td></tr>
+</table></div>
+
+<h3>pdadmin quick checks (run on the appliance or a policy-server client)</h3>
+<pre><code>pdadmin -a sec_master -p '********'
+pdadmin sec_master&gt; server list
+pdadmin sec_master&gt; server task default-webseald-isva-uat01 show /mga
+pdadmin sec_master&gt; object list /WebSEAL/isva-uat01-default/mga/sps/oauth/oauth20
+pdadmin sec_master&gt; acl list
+pdadmin sec_master&gt; acl show unauth_public
+pdadmin sec_master&gt; acl modify unauth_public set unauthenticated Tr
+pdadmin sec_master&gt; acl attach /WebSEAL/isva-uat01-default/mga/sps/oauth/oauth20/metadata unauth_public
+pdadmin sec_master&gt; acl attach /WebSEAL/isva-uat01-default/mga/sps/oauth/oauth20/jwks unauth_public
+pdadmin sec_master&gt; object show /WebSEAL/isva-uat01-default/mga/sps/oauth/oauth20/jwks</code></pre>
+<p class="lead" style="font-size:.9rem">Instance and ACL names above are examples. Confirm names with <code>server list</code> and <code>acl list</code>. Permission letters: <code>T</code> traverse, <code>r</code> read, <code>x</code> execute, <code>m</code> modify, <code>l</code> list, <code>d</code> delete, <code>c</code> control, <code>g</code> password-valid, <code>a</code> attach.</p>
+
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — over-opening</div>Do not attach a permissive ACL at <code>/mga</code> itself or at <code>/sps</code>: ACLs <em>inherit downward</em>, so you would expose admin-ish endpoints. Attach <code>unauthenticated Tr</code> only to the specific <code>/metadata</code> and <code>/jwks</code> nodes (and to <code>/authsvc</code> and <code>/authorize</code> which must be reachable before login).</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>403 HTML with “Reference #18.…” and <code>errors.edgesuite.net</code></td><td>Akamai WAF or IP allowlist blocked the caller</td>
+<td><pre><code>curl -sI https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test | head -20
+# look for Server: AkamaiGHost and "errors.edgesuite.net" in body (curl -s ...)</code></pre></td><td>Ask Akamai admin to allowlist the backend's egress IP for those paths; use the Reference # to trace.</td></tr>
+<tr><td>302 to a login page on <code>/metadata</code> or <code>/jwks</code></td><td>WebSEAL ACL denies <code>unauthenticated</code> on that object</td>
+<td><pre><code>curl -sI https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test
+# Location: header shows the login redirect</code></pre></td><td>Attach an ACL granting <code>unauthenticated Tr</code> to the exact object (above).</td></tr>
+<tr><td>Redirect loops after login</td><td>Cookie not accepted: wrong <code>Domain</code>/<code>Secure</code>, or Akamai caching a <code>Set-Cookie</code> response</td>
+<td>Browser HAR: check <code>Set-Cookie: PD-S-SESSION-ID</code> and that the next request carries it</td><td>Mark <code>/mga/*</code> as no-cache and pass cookies in Akamai.</td></tr>
+<tr><td>Back end sees wrong host in redirects</td><td>Origin Host header differs from public host</td>
+<td><pre><code>curl -sI -H 'Host: test.partnerlink.enterprise.com' https://isva-uat01.internal.net/mga/sps/authsvc</code></pre></td><td>Forward the public Host / set <code>X-Forwarded-Host</code>; configure the runtime's external base URL.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>There is no appliance to front: the tenant <code>https://&lt;tenant&gt;.verify.ibm.com</code> is already internet-facing, TLS-terminated and DDoS-protected by IBM. Perimeter allowlists move to <em>your</em> side (egress control) and to tenant-level admin/API access policies.</div>
+<div class="table-wrap"><table>
+<tr><th>Legacy ISVA</th><th>Purpose</th><th>Verify SaaS equivalent</th></tr>
+<tr><td>Akamai EdgeSuite WAF</td><td>Perimeter filtering</td><td>IBM-managed edge; optionally keep your CDN with a custom domain in front</td></tr>
+<tr><td>WebSEAL reverse proxy</td><td>Session, ACL, TLS</td><td>Tenant service; sessions are managed by Verify (not a cookie you operate)</td></tr>
+<tr><td><code>pdsrv.kdb</code> certificate</td><td>TLS identity</td><td>IBM-managed certificate; custom domain optional</td></tr>
+<tr><td>POS ACL <code>unauth</code> on <code>/metadata</code>,<code>/jwks</code></td><td>Public discovery</td><td>Discovery and JWKS are public by design — nothing to open</td></tr>
+<tr><td><code>/mga</code> junction + <code>iv-user</code>/<code>iv-creds</code></td><td>Identity propagation to apps</td><td>Tokens/claims (<code>id_token</code>, <code>/userinfo</code>); for legacy header apps use a PEP or gateway</td></tr>
+<tr><td>POP (IP/time/QoP)</td><td>Contextual protection</td><td>Access Policies (IP, geo, device, risk, time)</td></tr>
+</table></div>
+<p>Next: <a href="03-aac-federation-runtime.html">Module 03 — AAC &amp; Federation runtime</a>.</p>
 </main>
 </body>
 </html>
