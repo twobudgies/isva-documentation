@@ -72,7 +72,7 @@ th{background:color-mix(in srgb,var(--brand) 8%,var(--panel));font-size:.8rem;te
 tr:last-child td{border-bottom:0}
 .diagram{position:relative;margin:16px 0;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;overflow:auto}
 .diagram pre.mermaid{margin:0;background:transparent;text-align:center;min-width:fit-content}
-.diagram .dtools{position:absolute;top:6px;right:8px;z-index:2}
+.diagram .dtools{text-align:right;margin:0 0 6px}
 .diagram .dtools button,.modal button{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:3px 9px;cursor:pointer;font-size:.8rem}
 .diagram figcaption{font-size:.8rem;color:var(--muted);text-align:center;margin-top:6px}
 figure.diagram{margin:16px 0}
@@ -108,7 +108,8 @@ figure.diagram{margin:16px 0}
 }
 
 /* Tables: JS (site.js tagTables) adds a layout class based on the first header */
-.table-wrap td code,.table-wrap td pre{word-break:break-all}
+.table-wrap td code{overflow-wrap:break-word;word-break:normal}
+.table-wrap td pre{word-break:break-all}
 .table-wrap td pre{margin:0;white-space:pre-wrap;font-size:.74rem;padding:8px 10px}
 .table-wrap td pre button{display:none}
 .table-wrap table.pb4,.table-wrap table.pb5,.table-wrap table.steps{table-layout:fixed}
@@ -125,3 +126,21 @@ figure.diagram{margin:16px 0}
 .table-wrap table.steps th:nth-child(5){width:24%}
 .table-wrap table.numfirst th:first-child,.table-wrap table.numfirst td:first-child{width:48px;white-space:nowrap}
 .table-wrap table.acl{min-width:900px}
+
+/* Diagrams scale to the column; click to expand */
+.diagram svg{max-width:100%;height:auto;cursor:zoom-in}
+.diagram .dtools button{font-weight:600}
+.diagram .hint{font-size:.72rem;color:var(--muted);text-align:center;margin:2px 0 0}
+.modal .stage svg{cursor:default}
+/* Heading anchors, back-to-top, reading progress */
+h2 .anchor,h3 .anchor{opacity:0;margin-left:.4em;text-decoration:none;font-weight:400;color:var(--muted);font-size:.8em}
+h2:hover .anchor,h3:hover .anchor,.anchor:focus{opacity:1}
+#readbar{position:fixed;top:0;left:0;height:3px;width:0;background:var(--brand);z-index:60}
+#toTop{position:fixed;right:18px;bottom:18px;z-index:40;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:8px 12px;cursor:pointer;display:none;box-shadow:0 2px 10px rgba(0,0,0,.15)}
+#toTop.show{display:block}
+@media print{
+  #sidebar,#topbar,.pager,#toTop,#readbar,.dtools,.modal{display:none!important}
+  main{margin:0;padding:0;max-width:none}
+  body{background:#fff;color:#000}
+  h2{break-after:avoid}.diagram,.callout,pre,table{break-inside:avoid}
+}
