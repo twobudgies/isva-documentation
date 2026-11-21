@@ -44,7 +44,10 @@ a{color:var(--brand)}
 #menuBtn{display:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:4px 10px;font-size:1rem;cursor:pointer}
 #themeBtn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:4px 10px;cursor:pointer}
 main{margin-left:var(--side);padding:28px 28px 60px;max-width:calc(var(--side) + 1100px)}
-main>*{max-width:1040px}
+main>*{max-width:1040px;min-width:0}
+main{overflow-wrap:anywhere}
+html,body{overflow-x:hidden}
+.table-wrap pre,.table-wrap code{overflow-wrap:normal}
 h1{font-size:2rem;line-height:1.25;margin:.2em 0 .4em}
 h2{margin-top:2.2em;padding-top:.6em;border-top:1px solid var(--line);font-size:1.45rem}
 h3{margin-top:1.6em;font-size:1.15rem}
