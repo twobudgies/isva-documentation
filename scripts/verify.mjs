@@ -17,6 +17,7 @@ let blocks = 0;
 const isModule = f => /^\d\d-/.test(f);
 for (const f of htmlFiles) {
   const html = fs.readFileSync(path.join(root, f), 'utf8');
+  if (/<a\b[^>]*>(?:(?!<\/a>)[\s\S])*<a\b/.test(html)) err(`${f}: nested <a> link (invalid HTML)`);
   if (!/<meta name="viewport"/.test(html)) err(`${f}: missing viewport meta`);
   if (!/assets\/site\.js/.test(html)) err(`${f}: missing site.js`);
   for (const m of html.matchAll(/(?:href|src)="([^"#][^"]*|#[^"]*)"/g)) {

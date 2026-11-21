@@ -156,3 +156,5 @@ h2:hover .anchor,h3:hover .anchor,.anchor:focus{opacity:1}
 #searchResults a.res small{display:block;font-size:.75rem;color:var(--muted);line-height:1.35;margin-top:2px}
 #searchResults mark{background:#ffe58f;color:#000;border-radius:2px}
 @media(max-width:700px){.glance{grid-template-columns:1fr}}
+
+.toc ul{list-style:none;margin:.4em 0;padding-left:0}.toc li{margin:.15em 0}
