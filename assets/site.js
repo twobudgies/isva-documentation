@@ -39,7 +39,7 @@ function buildSidebar() {
     const h = el('h4', { 'data-group': g }, g); sb.append(h);
     for (const p of PAGES.filter(x => x.phase === g)) {
       const a = el('a', { class: 'nav' + (p.file === cur.file ? ' active' : ''), href: p.file, 'data-search': (p.id + ' ' + p.title + ' ' + (p.keywords || '')).toLowerCase() },
-        `${p.id === 'P' || p.id === '00' ? '' : p.id + ' · '}${p.title}<span class="st" title="${p.status}">${STATUS[p.status]}</span>`);
+        `${p.id === 'P' || p.id === '00' ? '' : p.id + ' · '}${p.title}`);
       sb.append(a);
     }
   }
