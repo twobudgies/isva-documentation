@@ -20,7 +20,8 @@ for (const f of htmlFiles) {
   if (/<a\b[^>]*>(?:(?!<\/a>)[\s\S])*<a\b/.test(html)) err(`${f}: nested <a> link (invalid HTML)`);
   if (!/<meta name="viewport"/.test(html)) err(`${f}: missing viewport meta`);
   if (!/assets\/site\.js/.test(html)) err(`${f}: missing site.js`);
-  for (const m of html.matchAll(/(?:href|src)="([^"#][^"]*|#[^"]*)"/g)) {
+  const linkHtml = html.replace(/<base\b[^>]*>/g, '');
+  for (const m of linkHtml.matchAll(/(?:href|src)="([^"#][^"]*|#[^"]*)"/g)) {
     const u = m[1]; if (/^(https?:|mailto:|data:)/.test(u)) continue;
     const [p, h] = u.split('#'); const target = p || f;
     if (!fs.existsSync(path.join(root, target))) { err(`${f}: broken link ${u}`); continue; }
