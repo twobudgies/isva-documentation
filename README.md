@@ -19,3 +19,6 @@ Checks internal links/anchors, Mermaid syntax, and that every module page has th
 
 ## Deploy
 Push to `main`; `.github/workflows/pages.yml` verifies and deploys. Enable **Settings → Pages → Source: GitHub Actions** once.
+
+## License
+[MIT](LICENSE). This is unofficial community documentation, not affiliated with or endorsed by IBM; IBM, IBM Security Verify Access and IBM Security Verify are trademarks of International Business Machines Corporation. Contributions are accepted under the same license (see [CONTRIBUTING.md](CONTRIBUTING.md)).
