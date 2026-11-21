@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FAQ &amp; Verification Status — ISVA Docs</title>
+<meta name="description" content="Answers for developers and product owners: why a broker, which findings block go-live, what Verify SaaS changes, and which statements on this site are standard, documented or must be verified on your system.">
+<link rel="stylesheet" href="assets/site.css">
+<script type="module" src="assets/site.js"></script>
+<style>
+ details.q{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:8px 0;padding:0 14px}
+ details.q>summary{cursor:pointer;font-weight:600;padding:12px 0;list-style:none}
+ details.q>summary::before{content:"＋";display:inline-block;width:1.4em;color:var(--brand)}
+ details.q[open]>summary::before{content:"－"}
+ details.q .a{padding:0 0 12px 1.4em;color:var(--ink)}
+ details.q .a p{margin:.4em 0}
+ .tag{display:inline-block;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:99px;margin-right:6px;vertical-align:middle}
+ .t-std{background:#d9f2e0;color:#0b3d1a}.t-doc{background:#dce9ff;color:#0b2a66}.t-ver{background:#ffe9b8;color:#5c3b00}.t-ill{background:#eadcff;color:#3a1a73}.t-brief{background:#e0e0e0;color:#222}
+ @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tag{filter:brightness(.9)}}
+</style>
+</head>
+<body data-page="F">
+<main>
+<h1>FAQ &amp; Verification Status</h1>
+<p class="lead">Two reader types, one page. <strong>Developers</strong> get quick answers to the questions that block implementation. <strong>Product owners and architects</strong> get the “why”, the risk ranking, the go-live blockers, and an honest map of which statements on this site are standard, documented, or still to be verified on your system.</p>
+<div id="toc"></div>
+
+<h2 id="dev">1. Developer questions</h2>
+
+<details class="q"><summary>My backend has a client secret. Do I still need PKCE?</summary><div class="a">
+<p>Yes. The secret proves <em>which application</em> is calling <code>/token</code>; PKCE proves the caller is the <em>same party that started this login</em>. They defend against different attacks: a stolen authorization code (browser extension, logs, referrer, shared device) is useless without the matching <code>code_verifier</code>. Current guidance (OAuth 2.0 Security BCP, OAuth 2.1) is PKCE for all clients. See <a href="06-oauth-oidc-clients.html">Module 06</a>.</p></div></details>
+
+<details class="q"><summary>Which token do I send to APIs: <code>id_token</code> or <code>access_token</code>?</summary><div class="a">
+<p>Send the <strong>access token</strong> to APIs. The <strong>ID token</strong> is for your client only: it states who logged in. An API that accepts an ID token cannot tell whether it was issued for that API (<code>aud</code> is the client, not the API). See <a href="01-iam-oidc-foundations.html">Module 01</a>.</p></div></details>
+
+<details class="q"><summary>What exactly must my backend validate on an ID token?</summary><div class="a">
+<ol>
+<li>Signature with the JWKS key whose <code>kid</code> matches the header; <code>alg</code> pinned to <code>RS256</code> (never accept <code>none</code>).</li>
+<li><code>iss</code> equals the issuer from discovery (not <code>localhost</code>).</li>
+<li><code>aud</code> contains your <code>client_id</code>.</li>
+<li><code>exp</code> in the future, <code>iat</code>/<code>nbf</code> sane (≤ 60 s skew).</li>
+<li><code>nonce</code> equals the one you sent.</li>
+<li>Optionally <code>acr</code>/<code>amr</code> for authentication strength.</li>
+</ol><p>Checklist version in the <a href="cheatsheet.html#claims">Quick Reference</a>.</p></div></details>
+
+<details class="q"><summary>Why does the backend (not the browser) call <code>/token</code>?</summary><div class="a">
+<p>Because only a server can keep <code>client_secret</code> and <code>code_verifier</code> private, and tokens should never pass through the browser address bar, history or logs. The browser only carries the short-lived, single-use code. See the <a href="11-end-to-end-7-step-flow.html">7-step flow</a>.</p></div></details>
+
+<details class="q"><summary>Why is <code>state</code> different on the portal↔ciam and ciam↔csl legs?</summary><div class="a">
+<p><code>ciam</code> is the authorization server for the portal <em>and</em> an OAuth client of <code>csl</code>. Each relationship needs its own CSRF protection and replay protection. Forwarding the portal's value lets whoever controls one leg influence the other. <code>ciam</code> stores the portal's <code>state</code>, issues its own <code>state2</code>/<code>nonce2</code> to <code>csl</code>, and restores the portal's value only at the end. See <a href="12-security-audit-hardening.html">Module 12</a>.</p></div></details>
+
+<details class="q"><summary>Login redirects in a loop. Where do I look first?</summary><div class="a">
+<p>Capture a HAR and ask: which request first returned something unexpected, and <em>who answered it</em>? Akamai block page → edge; <code>pkmslogin.form</code>/<code>HPDIA…</code> → WebSEAL ACL or cookie; JSON <code>error</code> → OAuth runtime. Then check whether <code>PD-S-SESSION-ID</code> was sent on the return request. Triage tree: <a href="14-troubleshooting-har-playbook.html">Module 14</a>.</p></div></details>
+
+<details class="q"><summary>How long can I cache JWKS and metadata?</summary><div class="a">
+<p>1–24 hours is typical, but <strong>always refetch once on an unknown <code>kid</code></strong> (rate-limited), otherwise a key rotation breaks every new token. If the JWKS endpoint is blocked at that moment, validation fails even though cached keys still work for old tokens. See <a href="07-metadata-jwks-discovery.html">Module 07</a>.</p></div></details>
+
+<details class="q"><summary>Do I need code changes to move to Verify SaaS?</summary><div class="a">
+<p>If your backend uses a standards-compliant OIDC library with discovery: usually configuration only (issuer/discovery URL, <code>client_id</code>/<code>secret</code>, redirect URI registered in the new application). Things that <em>do</em> need attention: the <code>iss</code>/<code>aud</code> values, claim names you depend on, and any logic that relied on <code>iv-user</code>/<code>iv-creds</code> headers. See <a href="13-verify-saas-migration.html">Module 13</a>.</p></div></details>
+
+<details class="q"><summary>Can I test the flow without Akamai getting in the way?</summary><div class="a">
+<p>Run the <a href="14-troubleshooting-har-playbook.html">curl suite</a> from the <em>same host/egress IP</em> as <code>partner_portal_backend</code>: that is the identity Akamai evaluates. Testing from a laptop proves nothing about the backend's access. Avoid bypassing the edge in production.</p></div></details>
+
+<h2 id="po">2. Product owner &amp; architect questions</h2>
+
+<details class="q"><summary>Why a broker at all? Why not let the portal talk to <code>csl</code> directly?</summary><div class="a">
+<p>A broker gives the portal <strong>one issuer, one set of claims, and one token format</strong> regardless of how many upstream identity providers exist or change. It centralises policy (scopes, lifetimes, step-up), lets you add or swap IdPs without touching applications, and keeps upstream credentials/tokens away from the portal. The cost: one more critical component to secure and operate, which is exactly what the audit examines. See <a href="01-iam-oidc-foundations.html">Module 01</a>.</p></div></details>
+
+<details class="q"><summary>Which findings are go-live blockers, and in what order should they be fixed?</summary><div class="a">
+<div class="table-wrap"><table>
+<tr><th>Order</th><th>Finding</th><th>Why this priority</th><th>Effort (relative)</th></tr>
+<tr><td>1</td><td>#4 <code>localhost</code> issuer + ROPC enabled</td><td>Breaks standards-based validation or forces validators to be loosened; ROPC bypasses upstream MFA. Config-only, but needs coordinated cut-over for <code>iss</code></td><td>Small config, medium coordination</td></tr>
+<tr><td>2</td><td>#2 PKCE not enforced</td><td>Authorization code interception is the main front-channel attack</td><td>Small–medium (rule + portal change)</td></tr>
+<tr><td>3</td><td>#1 state/nonce isolation</td><td>Login CSRF / fixation across the two legs</td><td>Medium (rule logic + tests)</td></tr>
+<tr><td>4</td><td>#3 nested URL encoding</td><td>Reliability and parameter-injection risk; often fixed together with #1 in the same rule</td><td>Small</td></tr>
+<tr><td>5</td><td>#5 edge/ACL for metadata/JWKS</td><td>Availability (not confidentiality): blocks backend validation. Operationally urgent if the backend is currently failing</td><td>Small, needs Akamai/WebSEAL owners</td></tr>
+</table></div>
+<p>This ranking is a recommendation based on typical exposure; adjust for your threat model and compliance obligations. Detail: <a href="12-security-audit-hardening.html">Module 12</a>.</p></div></details>
+
+<details class="q"><summary>Should we fix on legacy ISVA first or go straight to Verify SaaS?</summary><div class="a">
+<p>Fix #4 and #2 (and ideally #1) on legacy first if go-live precedes migration; they are small and migration timelines slip. Also it gives a clean baseline to test the SaaS tenant against (same curl suite, same HAR checks). If migration is imminent and the portal is not yet live, building the correct configuration directly in Verify and skipping legacy hardening can be reasonable. See the plan in <a href="13-verify-saas-migration.html">Module 13</a>.</p></div></details>
+
+<details class="q"><summary>What can ISVA do that Verify SaaS cannot (or does differently)?</summary><div class="a">
+<ul>
+<li><strong>Arbitrary server-side JavaScript in the login path</strong> (Rhino rules) → replaced by declarative mappings and webhooks; custom logic moves to a service you operate.</li>
+<li><strong>WebSEAL reverse-proxy SSO</strong> (junctions, <code>iv-user</code>/<code>iv-creds</code> header injection, POS ACLs) → not a SaaS feature; legacy applications that depend on it need a gateway/PEP or to be modernised to OIDC.</li>
+<li><strong>Custom authentication pages/templates</strong> → tenant branding and flows; confirm specific page-level customisations.</li>
+<li><strong>Full control of the appliance</strong> (tracing, firmware cadence) → managed service and reports.</li>
+</ul><p>Always confirm feature parity for <em>your</em> use cases with IBM documentation or support; the mapping on this site is conceptual.</p></div></details>
+
+<details class="q"><summary>What happens to logged-in users and existing tokens at cut-over?</summary><div class="a">
+<p>Existing sessions and tokens are tied to the old issuer; they do not carry over. Plan for users to sign in again, keep legacy validation available for the overlap window (short token lifetimes help), and make sure <code>sub</code> is stable so accounts do not duplicate. A feature-flagged pilot with instant rollback is the safest approach.</p></div></details>
+
+<details class="q"><summary>Can <code>csl</code> stay as the authentication source after migration?</summary><div class="a">
+<p>Yes. It becomes an <strong>Identity Source</strong> (OIDC or SAML federation) in the Verify tenant; users keep authenticating at <code>csl</code> including its MFA. You can later decide whether to move MFA or the directory into Verify. Because MFA then happens upstream only, configure the access policy to trust or re-require MFA deliberately.</p></div></details>
+
+<details class="q"><summary>Will disabling ROPC break something?</summary><div class="a">
+<p>Only clients that use the password grant. Before disabling, check token-endpoint access logs for <code>grant_type=password</code> over a representative period, identify the callers, and migrate them to authorization code (users) or client credentials (services). If the log shows none, disabling is safe. Verify afterwards that the endpoint returns <code>unsupported_grant_type</code>.</p></div></details>
+
+<details class="q"><summary>How do we prove the fixes worked?</summary><div class="a">
+<p>Every finding has an executable test (PKCE rejected without challenge, ROPC returns <code>unsupported_grant_type</code>, issuer correct, JWKS 200 from the backend host, single-use code, tampered <code>state</code> rejected). Keep them as a regression suite. See the verification table in <a href="12-security-audit-hardening.html#pitfalls">Module 12</a> and the script in <a href="14-troubleshooting-har-playbook.html#env">Module 14</a>.</p></div></details>
+
+<details class="q"><summary>What about licensing, cost, data residency and audit retention?</summary><div class="a">
+<p>Out of scope here and not something this documentation can answer: confirm with IBM and your compliance team (tenant region, log retention, subprocessors, support tiers). Audit/event streaming to your SIEM is covered conceptually in <a href="13-verify-saas-migration.html">Module 13</a>.</p></div></details>
+
+<h2 id="status">3. Verification status: what is established, what to confirm</h2>
+<p>Every statement on this site falls into one of five confidence levels. If you are checking the docs for doubts, start with the “verify” rows.</p>
+<div class="table-wrap"><table>
+<tr><th>Level</th><th>Meaning</th><th>Examples on this site</th><th>How to confirm</th></tr>
+<tr><td><span class="tag t-brief">GIVEN</span></td><td>Taken from the architecture brief for this project</td><td>The 7-step flow and URLs, participant names, rule names, the five audit findings, <code>localhost</code> Provider ID, observed nested-URL form</td><td>Compare with your real HAR and configuration</td></tr>
+<tr><td><span class="tag t-std">STANDARD</span></td><td>Defined by RFCs/specs; stable</td><td>OAuth 2.0 / OIDC flows, PKCE (RFC 7636), JWT/JWKS, <code>state</code>/<code>nonce</code> semantics, error codes, redirect_uri exact matching</td><td>RFC 6749, 7636, 7517/7519, OIDC Core</td></tr>
+<tr><td><span class="tag t-doc">DOCUMENTED</span></td><td>Follows IBM's documented product model for ISVA 10.x/11.x and Verify</td><td>WebSEAL junction and ACL concepts, <code>pdadmin</code> verbs (<code>acl attach</code>, <code>server task … show</code>), LMI staging/deploy model, policy URN pattern, Verify endpoint layout <code>/oidc/endpoint/default/…</code></td><td>IBM Docs for your exact version</td></tr>
+<tr><td><span class="tag t-ver">VERIFY</span></td><td>Plausible and consistent with the product, but exact names/paths may differ by version</td><td>LMI menu names, REST paths other than the well-known ones, trace-spec package names, mapping-rule class and attribute-type URIs, exact redirect mechanism inside an InfoMap rule, the “Provider ID” field label, which <code>iv-*</code> headers a junction injects, Verify feature names (Pre-Token webhook, attribute functions, “Require PKCE”)</td><td>Look for <code>// VERIFY</code> in code and “verify on your appliance” notes; test on a non-production appliance or tenant</td></tr>
+<tr><td><span class="tag t-ill">ILLUSTRATIVE</span></td><td>Example values or reference code, not your real configuration</td><td>Hostnames, IPs, <code>csl.example.com</code>, sample tokens and JSON, <code>unauth_public</code> ACL name, the three reference JavaScript rules, recommended lifetimes</td><td>Replace with your values; diff the reference rules against production files</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Important</div>The three rules in <a href="09-infomap-mapping-rules.html">Module 09</a> are <strong>reference implementations</strong> showing the correct behaviour (state2/nonce2, PKCE gate, encoding). They are not copies of your production files and have not been executed against your appliance. Treat them as a specification to implement and test.</div>
+
+<h2 id="report">4. Found something wrong or unclear?</h2>
+<p>Open an issue or pull request in the repository with the page, the statement, and what your system actually does (version, screenshot or trace excerpt with secrets removed). Corrections that move a statement from <span class="tag t-ver">VERIFY</span> to <span class="tag t-doc">DOCUMENTED</span> are especially valuable.</p>
+</main>
+</body>
+</html>
