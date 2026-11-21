@@ -144,3 +144,15 @@ h2:hover .anchor,h3:hover .anchor,.anchor:focus{opacity:1}
   body{background:#fff;color:#000}
   h2{break-after:avoid}.diagram,.callout,pre,table{break-inside:avoid}
 }
+
+.glance{display:grid;grid-template-columns:2fr 1fr;gap:16px;background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--brand);border-radius:12px;padding:14px 18px;margin:16px 0}
+.glance ul{margin:.4em 0 0;padding-left:1.1em}.glance p{margin:.2em 0 .8em;color:var(--muted)}
+.takeaways{margin-top:40px}
+#searchResults{margin-top:8px}
+#searchResults a.res{display:block;padding:8px 10px;border-radius:8px;text-decoration:none;color:var(--ink);border:1px solid var(--line);margin-bottom:6px;background:var(--bg)}
+#searchResults a.res:hover{border-color:var(--brand)}
+#searchResults a.res b{display:block;font-size:.85rem}
+#searchResults a.res span{display:block;font-size:.75rem;color:var(--brand)}
+#searchResults a.res small{display:block;font-size:.75rem;color:var(--muted);line-height:1.35;margin-top:2px}
+#searchResults mark{background:#ffe58f;color:#000;border-radius:2px}
+@media(max-width:700px){.glance{grid-template-columns:1fr}}
