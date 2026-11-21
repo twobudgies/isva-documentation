@@ -29,6 +29,17 @@ function el(tag, attrs = {}, html = '') {
   e.innerHTML = html; return e;
 }
 
+function tagTables() {
+  document.querySelectorAll('.table-wrap table').forEach(t => {
+    const hs = [...t.rows[0].cells].map(c => c.textContent.trim().toLowerCase());
+    if (hs[0] === 'symptom' && hs.length === 4) t.classList.add('pb4');
+    else if (hs[0] === 'step' && hs.length === 5) t.classList.add('pb5');
+    else if (hs[0] === '#' && hs.length === 5 && hs[1].startsWith('from')) t.classList.add('steps');
+    else if (hs[0] === '#') t.classList.add('numfirst');
+    if (hs[0] === 'path' && hs.length === 5) t.classList.add('acl');
+  });
+}
+
 function buildSidebar() {
   const sb = el('nav', { id: 'sidebar', 'aria-label': 'Documentation navigation' });
   sb.innerHTML = `<a class="brand" href="index.html">ISVA → Verify SaaS Docs</a>
@@ -185,5 +196,5 @@ function fillProgress() {
 }
 
 try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); fillProgress();
+tagTables(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); fillProgress();
 renderMermaid();
