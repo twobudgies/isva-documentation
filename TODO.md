@@ -31,7 +31,7 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 ## Phase 4 — `feat/phase4-e2e-security-migration`
 - [x] 11 End-to-end 7-step flow
 - [x] 12 Security audit & hardening
-- [ ] 13 Migration to Verify SaaS
+- [x] 13 Migration to Verify SaaS
 
 ## Phase 5 — `feat/troubleshooting-and-qa`
 - [ ] 14 Troubleshooting & HAR playbook
