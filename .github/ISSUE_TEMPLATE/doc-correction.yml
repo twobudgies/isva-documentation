@@ -1,0 +1,40 @@
+name: Correction or doubt
+description: Something on a page looks wrong, unclear or does not match your system
+title: "[page] "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping. **Do not paste real secrets, tokens, client secrets, cookies or HAR files.** Replace hostnames and IDs with placeholders.
+  - type: input
+    id: page
+    attributes:
+      label: Page and section
+      placeholder: "12-security-audit-hardening.html, Finding 2"
+    validations:
+      required: true
+  - type: textarea
+    id: statement
+    attributes:
+      label: What the page says
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What you observe or believe is correct
+      description: Include product and version (e.g. ISVA 10.0.6, Verify tenant region) and how you verified it.
+    validations:
+      required: true
+  - type: dropdown
+    id: level
+    attributes:
+      label: Which confidence level is affected?
+      options:
+        - Given / architecture facts
+        - Standard (RFC) behaviour
+        - Documented IBM behaviour
+        - Marked VERIFY
+        - Illustrative example or code
+        - Not sure

@@ -168,6 +168,7 @@ function buildAids() {
 }
 
 function buildPager() {
+  if (document.body.dataset.page === '404') return;
   const main = document.querySelector('main');
   const seq = PAGES;
   const i = seq.findIndex(p => p.file === cur.file);
@@ -177,6 +178,21 @@ function buildPager() {
   d.innerHTML = (prev ? `<a class="prev" href="${prev.file}"><small>← Previous</small>${prev.id} · ${prev.title}</a>` : '<span class="ph"></span>') +
     (next ? `<a class="next" href="${next.file}"><small>Next →</small>${next.id} · ${next.title}</a>` : '<span class="ph"></span>');
   main.append(d);
+}
+
+const REPO = 'https://github.com/twobudgies/isva-documentation';
+function buildFooter() {
+  if (document.body.dataset.page === '404') return;
+  const main = document.querySelector('main');
+  const f = el('footer', { class: 'pagefoot' }, `<div class="links">
+      <a href="${REPO}/edit/main/${cur.file}" rel="noopener">✏️ Suggest an edit to this page</a>
+      <a href="${REPO}/issues/new?template=doc-correction.yml&title=${encodeURIComponent('[' + cur.file + '] ')}" rel="noopener">🐞 Report an error or doubt</a>
+      <a href="faq.html#status">🧐 What is verified vs. to-verify?</a></div>
+    <p>Unofficial community documentation, not affiliated with or endorsed by IBM. IBM, IBM Security Verify Access and IBM Security Verify are trademarks of International Business Machines Corporation. Names, hosts and IDs are placeholders. Never paste real secrets, tokens or HAR files into an issue.</p>`);
+  main.append(f);
+}
+function favicon() {
+  if (!document.querySelector('link[rel~="icon"]')) document.head.append(el('link', { rel: 'icon', type: 'image/svg+xml', href: 'assets/favicon.svg' }));
 }
 
 function buildToc() {
@@ -348,5 +364,5 @@ function addCopyButtons() {
 }
 
 try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-tagTables(); buildAids(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); decorate(); a11y(); trackSection(); buildValsPanel(); applyVals();
+tagTables(); buildAids(); buildSidebar(); buildTopbar(); buildPager(); buildFooter(); favicon(); buildToc(); wireSearch(); addCopyButtons(); decorate(); a11y(); trackSection(); buildValsPanel(); applyVals();
 renderMermaid();
