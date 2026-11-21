@@ -2,7 +2,7 @@
 
 Static, build-free documentation site (GitHub Pages) covering a brokered OIDC architecture on IBM Security Verify Access (ISVA 10.x/11.x), its security audit, and the migration path to IBM Security Verify (SaaS).
 
-- Start at [`index.html`](index.html) · progress in [`TODO.md`](TODO.md) / `progress.html`
+- Start at [`index.html`](index.html)
 - All names/hosts/IDs are sanitized placeholders (`partner_portal`, `ciam`, `csl`, …).
 - Diagrams use Mermaid v11 loaded from a CDN.
 

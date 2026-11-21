@@ -6,7 +6,7 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 - [x] Shared CSS (`assets/site.css`): light/dark, callouts, responsive
 - [x] Shared JS (`assets/site.js`): sidebar, filter, breadcrumb, prev/next, Mermaid v11 + expand/zoom
 - [x] `index.html` (Page 0) with architecture + 7-step diagrams
-- [x] `progress.html` tracker
+- [x] ~~`progress.html` tracker~~ (removed: site is live)
 - [x] GitHub Actions Pages workflow (`.github/workflows/pages.yml`)
 - [x] `scripts/verify.mjs` (links, anchors, Mermaid syntax, module template checks)
 - [x] Stub pages 01–14 so navigation resolves
