@@ -35,4 +35,4 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 
 ## Phase 5 — `feat/troubleshooting-and-qa`
 - [x] 14 Troubleshooting & HAR playbook
-- [ ] Final QA: all hrefs, Mermaid syntax, sidebar state, responsive layout across 16 HTML files
+- [x] Final QA: all hrefs, Mermaid syntax, sidebar state, responsive layout across 16 HTML files (scripts/verify.mjs + scripts/render-check.sh)
