@@ -34,5 +34,5 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 - [x] 13 Migration to Verify SaaS
 
 ## Phase 5 — `feat/troubleshooting-and-qa`
-- [ ] 14 Troubleshooting & HAR playbook
+- [x] 14 Troubleshooting & HAR playbook
 - [ ] Final QA: all hrefs, Mermaid syntax, sidebar state, responsive layout across 16 HTML files

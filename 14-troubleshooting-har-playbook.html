@@ -3,14 +3,156 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Troubleshooting & HAR Playbook — ISVA Docs</title>
+<title>14 · Troubleshooting &amp; HAR Playbook — ISVA Docs</title>
+<meta name="description" content="Operational runbook: diagnosing Akamai 403 blocks, WebSEAL 302 ACL loops, invalid_grant and iss mismatches with HAR analysis, JWT decoding and a curl verification suite.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="14" data-stub="true">
+<body data-page="14">
 <main>
-<h1>14 · Troubleshooting & HAR Playbook</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>14 · Operational Runbook: HAR &amp; JWT Debugging</h1>
+<p class="lead">When login breaks, work the problem in layers — edge, proxy, runtime, rule, token — using a HAR capture, a few <code>curl</code> commands and a JWT decoder. This page is the on-call playbook for the whole site.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — a HAR file is a flight recorder</div>
+<p>A <strong>HAR</strong> (HTTP Archive) is a recording of everything your browser sent and received: URLs, status codes, headers, cookies, timings. Capture one and you can replay the story of a login. Read it like a detective: <em>which was the last good response, and what was the first bad one?</em> Every status code points at a layer: <strong>403 + Akamai page</strong> → edge; <strong>302 to a login page</strong> → WebSEAL ACL; <strong>400 JSON error</strong> → OAuth runtime; <strong>token rejected by the app</strong> → validation.</p></div>
+<h3>How to capture a clean HAR</h3>
+<ol>
+<li>Open DevTools → <em>Network</em>; tick <strong>Preserve log</strong> and <strong>Disable cache</strong>.</li>
+<li>Use a private window; start capture; perform the login; stop at the failure.</li>
+<li>Right-click → <em>Save all as HAR with content</em>.</li>
+<li><strong>Sanitize before sharing</strong>: HARs contain cookies, codes and tokens. Remove <code>Cookie</code>, <code>Set-Cookie</code>, <code>code=</code>, <code>id_token</code> values (or revoke after).</li>
+</ol>
+
+<h2 id="high">2. High-level architecture — triage tree</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S([Login fails]) --> Q1{Where does the browser stop?}
+  Q1 -- "Akamai 'Access Denied' Reference #" --> E1[Edge: WAF / IP allowlist<br/>Module 02, 07]
+  Q1 -- "302 loop or login page on public URL" --> E2[WebSEAL ACL / cookie<br/>Module 02, 07, 08]
+  Q1 -- "csl error page" --> E3[Nested URL / appId / redirect_uri<br/>Module 09, 12]
+  Q1 -- "Portal callback with error= param" --> E4[ciam rule rejected: PKCE, scope, state<br/>Module 06, 09]
+  Q1 -- "Callback OK, portal shows login error" --> Q2{Backend log}
+  Q2 -- "invalid_grant" --> E5[Code reuse / redirect_uri / verifier]
+  Q2 -- "issuer or signature" --> E6[iss localhost / stale JWKS<br/>Module 05, 07]
+  Q2 -- "403/302 fetching JWKS" --> E1
+  Q2 -- "invalid_client" --> E7[client_secret / auth method]
+</pre>
+<figcaption>Figure 14.1 — Symptom to layer to module</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — identify the layer first</div>Never edit ISVA config before you know which layer answered. Response headers tell you: <code>Server: AkamaiGHost</code> = edge; WebSEAL-style error ids <code>HPDIA…</code>/<code>pkmslogin.form</code> = WebSEAL; JSON <code>{"error":…}</code> = OAuth runtime.</div>
+
+<h2 id="low">3. Low-level technical sequence — reading a HAR</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor Op as Operator
+  participant H as HAR file
+  participant A as Akamai
+  participant W as WebSEAL
+  participant R as Runtime
+  Op->>H: list entries (status, host, path)
+  H-->>Op: 302 authsvc, 302 csl, 302 authorize, ...
+  Op->>H: find first non-2xx/3xx or unexpected Location
+  alt Server header = AkamaiGHost and body has errors.edgesuite.net
+    Op->>A: raise ticket with Reference # + client IP + path
+  else Location contains pkmslogin.form or HPDIA body
+    Op->>W: check ACL for object, cookie sent on request?
+  else JSON error from /oauth
+    Op->>R: read error and error_description, enable trace
+  end
+  Op->>H: decode id_token payload (iss, aud, exp, nonce, sub)
+  Op->>H: compare redirect_uri on authorize vs token requests
+</pre>
+<figcaption>Figure 14.2 — Investigation loop</figcaption></figure>
+
+<h3>HAR one-liners (needs <code>jq</code>)</h3>
+<pre><code># overview: status, method, url
+jq -r '.log.entries[] | "\(.response.status) \(.request.method) \(.request.url | .[0:140])"' login.har
+
+# every redirect and where it points
+jq -r '.log.entries[] | select(.response.status&gt;=300 and .response.status&lt;400) |
+  "\(.response.status) \(.request.url | .[0:80]) -&gt; \(.response.headers[] | select(.name|ascii_downcase=="location") | .value | .[0:160])"' login.har
+
+# Akamai blocks
+jq -r '.log.entries[] | select(.response.content.text // "" | test("errors.edgesuite.net")) | .request.url' login.har
+
+# which requests carried the ciam session cookie?
+jq -r '.log.entries[] | select(.request.cookies[]?.name=="PD-S-SESSION-ID") | .request.url | .[0:100]' login.har
+
+# double-question-mark URLs (finding #3)
+jq -r '.log.entries[].request.url | select(test("\\?.*\\?"))' login.har</code></pre>
+
+<h3>Decode a JWT without leaving the terminal</h3>
+<pre><code>jwt() { cut -d. -f"$2" &lt;&lt;&lt;"$1" | tr '_-' '/+' | awk '{l=length($0)%4; if(l==2)$0=$0"=="; else if(l==3)$0=$0"="; print}' | base64 -d 2&gt;/dev/null | jq .; }
+jwt "$ID_TOKEN" 1    # header: alg, kid
+jwt "$ID_TOKEN" 2    # payload: iss, aud, exp, nonce, sub
+date -r "$(jwt "$ID_TOKEN" 2 | jq .exp)"     # macOS expiry; Linux: date -d @EXP</code></pre>
+
+<h2 id="env">4. Environment deep dive — curl verification suite</h2>
+<p>Run from the <strong>same host as <code>partner_portal_backend</code></strong> (egress IP matters for Akamai). Set <code>HOST</code>, <code>CID</code>, <code>SECRET</code>.</p>
+<pre><code>#!/usr/bin/env bash
+HOST=https://test.partnerlink.enterprise.com
+B=$HOST/mga/sps/oauth/oauth20
+CID='&lt;partner_portal_clientid&gt;'
+
+echo "== 1 metadata";  curl -s -o /dev/null -w '%{http_code} %{content_type}\n' $B/metadata/PartnerLink_OIDC_Test
+echo "== 2 issuer";    curl -s $B/metadata/PartnerLink_OIDC_Test | jq -r .issuer
+echo "== 3 jwks";      curl -s -o /dev/null -w '%{http_code} %{content_type}\n' $B/jwks/PartnerLink_OIDC_Test
+echo "== 4 kids";      curl -s $B/jwks/PartnerLink_OIDC_Test | jq -r '.keys[].kid'
+echo "== 5 edge?";     curl -sI $B/jwks/PartnerLink_OIDC_Test | egrep -i '^(server|http|location)'
+echo "== 6 authsvc no-PKCE (should be rejected)"
+curl -sI "$HOST/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=t1" | egrep -i '^(http|location)'
+echo "== 7 nested ? count (expect 1)"
+curl -sI "$HOST/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=t1" | grep -i '^location:' | tr -cd '?' | wc -c
+echo "== 8 ROPC disabled (expect unsupported_grant_type)"
+curl -s -u "$CID:$SECRET" -d grant_type=password -d username=x -d password=y $B/token
+echo "== 9 bad code (expect invalid_grant)"
+curl -s -u "$CID:$SECRET" -d grant_type=authorization_code -d code=bogus -d redirect_uri=https://portal.example.com/cb $B/token
+echo "== 10 metadata advertises S256"
+curl -s $B/metadata/PartnerLink_OIDC_Test | jq .code_challenge_methods_supported</code></pre>
+<div class="table-wrap"><table>
+<tr><th>Check</th><th>Healthy</th><th>If not</th></tr>
+<tr><td>1, 3</td><td><code>200 application/json</code></td><td>403 → Akamai; 302 → ACL; HTML → error page</td></tr>
+<tr><td>2</td><td>External hostname</td><td><code>localhost</code> → Module 05</td></tr>
+<tr><td>5</td><td>No <code>Location</code></td><td>Location present = redirect to login</td></tr>
+<tr><td>6, 7</td><td>error redirect; <code>1</code></td><td>Passes without PKCE or shows 2+ → Modules 06, 09</td></tr>
+<tr><td>8</td><td><code>unsupported_grant_type</code></td><td>Token returned → ROPC on</td></tr>
+<tr><td>9</td><td><code>invalid_grant</code></td><td><code>invalid_client</code> → secret/auth method</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — debugging hygiene</div>Don't paste live codes, tokens, secrets or HARs into tickets or chat. Treat any token seen in a HAR as compromised if it was still valid. Turn runtime tracing off after use and purge <code>trace.log</code>.</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Exact fix</th></tr>
+<tr><td><strong>403 Akamai</strong> on <code>/jwks</code>, <code>/metadata</code> or <code>/token</code></td><td>Backend egress IP not allowlisted or WAF rule hit</td>
+<td><pre><code>curl -s https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test | grep -o 'Reference #[0-9a-f.]*'</code></pre></td><td>Send Reference #, IP, path to the Akamai owner; allowlist the IP for those paths only.</td></tr>
+<tr><td><strong>302 loop</strong> (login → login)</td><td>ACL denies unauthenticated, or session cookie dropped</td>
+<td><pre><code>curl -sIL --max-redirs 5 https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test | egrep -i '^(http|location|set-cookie)'</code></pre></td><td><code>pdadmin acl attach &lt;object&gt; &lt;acl-with-unauthenticated-Tr&gt;</code>; fix cookie attributes/Akamai caching.</td></tr>
+<tr><td><strong>invalid_grant</strong></td><td>Code reused/expired, <code>redirect_uri</code> differs, wrong <code>code_verifier</code></td>
+<td>Compare <code>redirect_uri</code> in HAR authorize vs backend token call; check time between 302 and exchange</td><td>Exchange once within 60 s with identical <code>redirect_uri</code>; keep verifier in the server session.</td></tr>
+<tr><td><strong>iss mismatch</strong></td><td>Provider ID is <code>https://localhost/sps/oauth/oauth20/15</code></td>
+<td><pre><code>jwt "$ID_TOKEN" 2 | jq -r .iss</code></pre></td><td>Set external Provider ID, deploy, update RP issuer config.</td></tr>
+<tr><td><strong>Signature invalid / unknown kid</strong></td><td>Stale JWKS cache or rotation without overlap</td>
+<td><pre><code>diff &lt;(jwt "$ID_TOKEN" 1 | jq -r .kid) &lt;(curl -s .../jwks/PartnerLink_OIDC_Test | jq -r '.keys[].kid')</code></pre></td><td>Refetch JWKS on unknown <code>kid</code>; publish old+new keys.</td></tr>
+<tr><td><strong>state mismatch</strong> at portal</td><td>Wrong state returned or portal session lost</td><td>Compare <code>state</code> in first redirect and callback</td><td>Restore portal state in final redirect; check portal cookie <code>SameSite</code>.</td></tr>
+<tr><td><strong>Token expired</strong> immediately</td><td>Clock skew between hosts</td><td><code>date -u</code> on backend vs <code>Date:</code> response header</td><td>NTP; allow ≤ 60 s leeway.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>The same HAR method applies, but the layers collapse: there is no Akamai/WebSEAL hop to debug on your side, and server-side logs are in the tenant's reports.</div>
+<div class="table-wrap"><table>
+<tr><th>Legacy debug step</th><th>Verify SaaS equivalent</th></tr>
+<tr><td>Check Akamai Reference # / WAF</td><td>Only your own egress firewall/proxy; test <code>curl</code> to tenant discovery</td></tr>
+<tr><td>WebSEAL ACL / <code>pdadmin</code></td><td>Access policy evaluation events; application entitlement</td></tr>
+<tr><td>Runtime <code>trace.log</code></td><td>Admin console Reports → Events (authentication, token, policy decisions)</td></tr>
+<tr><td>Rule JS errors</td><td>Webhook delivery logs on your service; attribute-function test tool</td></tr>
+<tr><td>Metadata/JWKS curl</td><td><code>curl https://&lt;tenant&gt;.verify.ibm.com/oidc/endpoint/default/.well-known/openid-configuration</code></td></tr>
+<tr><td>Decode JWT</td><td>Identical; plus introspection at <code>/oidc/endpoint/default/introspect</code></td></tr>
+</table></div>
+<p>That completes the 14 modules. Return to the <a href="index.html">overview</a> or check the <a href="progress.html">progress tracker</a>.</p>
 </main>
 </body>
 </html>
