@@ -3,14 +3,160 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IAM & OIDC Foundations — ISVA Docs</title>
+<title>01 · IAM &amp; OIDC Foundations — ISVA Docs</title>
+<meta name="description" content="Zero-to-hero primer: authentication vs authorization, reverse proxies, OAuth 2.0, OIDC, JWT, JWKS and identity brokering.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="01" data-stub="true">
+<body data-page="01">
 <main>
-<h1>01 · IAM & OIDC Foundations</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>01 · IAM &amp; OIDC Foundations</h1>
+<p class="lead">Everything you need before touching ISVA: who is asking (authentication), what they may do (authorization), how a reverse proxy sits in front of apps, and how OAuth 2.0, OpenID Connect, JWTs and JWKS fit together in an identity broker.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the hotel</div>
+<p><strong>Authentication (AuthN)</strong> is the front desk checking your passport: <em>“Who are you?”</em> <strong>Authorization (AuthZ)</strong> is the key card that only opens your room and the gym: <em>“What may you do?”</em> A <strong>reverse proxy</strong> is the hotel lobby — every guest and delivery goes through it, and staff decide who gets past. An <strong>identity broker</strong> is a concierge who accepts your passport from <em>another</em> country's desk (an upstream identity provider) and hands you the hotel's own key card.</p></div>
+
+<h3>Key vocabulary (plain English)</h3>
+<div class="table-wrap"><table>
+<tr><th>Term</th><th>Meaning</th><th>In this environment</th></tr>
+<tr><td>Identity Provider (IdP)</td><td>The system that verifies who a user is.</td><td><code>csl</code></td></tr>
+<tr><td>Relying Party / Client</td><td>An app that trusts an IdP/AS to log users in.</td><td><code>partner_portal</code></td></tr>
+<tr><td>Authorization Server (AS)</td><td>Issues tokens after a user is authenticated and consents.</td><td><code>ciam</code> (ISVA)</td></tr>
+<tr><td>Resource Server</td><td>An API that accepts tokens.</td><td><code>partner_portal_backend</code> APIs</td></tr>
+<tr><td>Token</td><td>A signed, time-limited proof handed to an app.</td><td><code>id_token</code>, <code>access_token</code></td></tr>
+<tr><td>Front channel</td><td>Messages relayed <em>through the user's browser</em> via redirects. Visible and tamperable.</td><td>Steps 1–6</td></tr>
+<tr><td>Back channel</td><td>Direct server-to-server HTTPS. Can carry secrets.</td><td>Step 7 <code>/token</code></td></tr>
+</table></div>
+
+<h3>OAuth 2.0 vs OpenID Connect</h3>
+<p><strong>OAuth 2.0</strong> is a framework for <em>delegated authorization</em>: it answers “may this app call that API for this user?” by issuing an <code>access_token</code>. It deliberately says nothing about <em>who</em> the user is. <strong>OpenID Connect (OIDC)</strong> is a thin identity layer on top: adding the <code>openid</code> scope makes the server also return an <code>id_token</code> (a JWT stating who authenticated, when, and how) plus a <code>/userinfo</code> endpoint and discovery metadata.</p>
+
+<h3>Anatomy of a JWT</h3>
+<p>A JSON Web Token is three Base64URL strings joined by dots: <code>header.payload.signature</code>.</p>
+<pre><code>// header
+{ "alg": "RS256", "kid": "key-2025-01", "typ": "JWT" }
+// payload (claims)
+{ "iss": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test",
+  "sub": "jdoe", "aud": "&lt;partner_portal_clientid&gt;",
+  "exp": 1767225600, "iat": 1767222000, "nonce": "n-0S6_WzA2Mj", "acr": "urn:partnerlink:mfa" }
+// signature = RSA-SHA256(base64url(header) + "." + base64url(payload), ciam_private_key)</code></pre>
+<div class="callout note"><div class="ttl">Note</div>The JWT payload is <strong>encoded, not encrypted</strong>. Anyone holding the token can read it. The signature only proves it hasn't been altered and who issued it.</div>
+
+<h3>JWKS — how a signature is verified without sharing a secret</h3>
+<p>The issuer signs with a <strong>private key</strong> it never shares. It publishes the matching <strong>public keys</strong> as a JSON Web Key Set (<code>/jwks/PartnerLink_OIDC_Test</code>). The token header's <code>kid</code> says which key to use. The backend downloads the JWKS (cached), finds the key, verifies the signature, then checks <code>iss</code>, <code>aud</code>, <code>exp</code> and <code>nonce</code>.</p>
+
+<h3>Identity brokering</h3>
+<p>Brokering means the authorization server does not authenticate users itself: it <strong>redirects to another IdP</strong>, trusts the result, and issues <em>its own</em> tokens to the client. The client only ever trusts one issuer (<code>ciam</code>), no matter how many upstream IdPs exist behind it.</p>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph Browser
+    U([User])
+  end
+  subgraph Client[Client side]
+    P[partner_portal<br/>Relying Party]
+    B[partner_portal_backend<br/>Resource/Confidential client]
+  end
+  subgraph Broker[Identity Broker - ciam]
+    AS[Authorization Server<br/>/authorize /token /jwks]
+  end
+  subgraph Upstream
+    IDP[csl<br/>Primary credentials + MFA]
+  end
+  U --> P
+  P -- "front channel: who are you?" --> AS
+  AS -- "front channel: login upstream" --> IDP
+  IDP -- "proof of login" --> AS
+  AS -- "code" --> P
+  P --> B
+  B -- "back channel: code -> tokens" --> AS
+</pre>
+<figcaption>Figure 1.1 — Roles in a brokered authorization-code flow</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — why a code, not a token, in the URL?</div>
+URLs end up in browser history, proxy logs and Referer headers. So the AS returns a short-lived, single-use <strong>authorization code</strong> in the URL, and the confidential backend swaps it for tokens on a private back channel, authenticating with its <code>client_secret</code>.</div>
+
+<h2 id="low">3. Low-level technical sequence</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant P as partner_portal
+  participant C as ciam /mga
+  participant B as partner_portal_backend
+  U->>P: GET / (no session)
+  activate P
+  P-->>U: 302 Location: https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=CLIENTID&scope=openid&state=789
+  deactivate P
+  U->>C: GET /mga/sps/authsvc?client=...&scope=openid&state=789
+  activate C
+  alt user not yet authenticated
+    C-->>U: 302 to upstream login (see Module 11)
+    U->>C: GET /mga/sps/oauth/oauth20/authorize?clientId=...&state=789 (after login)
+  end
+  C-->>U: 302 Location: https://portal/cb?code=AbC123&state=789
+  deactivate C
+  U->>P: GET /cb?code=AbC123&state=789
+  P->>P: verify state equals value stored in session
+  P->>B: POST /api/login {code}
+  activate B
+  B->>C: POST /mga/sps/oauth/oauth20/token<br/>Content-Type: application/x-www-form-urlencoded<br/>grant_type=authorization_code&code=AbC123&redirect_uri=...&client_id=...&client_secret=***
+  C-->>B: 200 {"access_token":"...","id_token":"eyJ...","token_type":"bearer","expires_in":3600}
+  opt first time or key rotated
+    B->>C: GET /mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test
+    C-->>B: 200 {"keys":[{"kty":"RSA","kid":"...","n":"...","e":"AQAB"}]}
+  end
+  B->>B: verify RS256 signature, iss, aud, exp, nonce
+  B-->>P: 200 session established
+  deactivate B
+</pre>
+<figcaption>Figure 1.2 — Generic authorization-code exchange with the concrete endpoints used here</figcaption></figure>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Concept</th><th>Concrete object in this environment</th></tr>
+<tr><td>Client (RP)</td><td><code>partner_portal</code>, Client ID <code>&lt;partner_portal_clientid&gt;</code></td></tr>
+<tr><td>Confidential back-end</td><td><code>partner_portal_backend</code> — holds <code>client_secret</code>, calls <code>/token</code></td></tr>
+<tr><td>Authorization Server / Broker</td><td><code>ciam</code> = ISVA at <code>test.partnerlink.enterprise.com</code>, appliance <code>isva-uat01.internal.net:9443</code> (LMI only)</td></tr>
+<tr><td>Upstream IdP</td><td><code>csl</code> at <code>/authb/login?appId=27096415…</code></td></tr>
+<tr><td>Definition</td><td>API Protection Definition <code>PartnerLink_OIDC_Test</code></td></tr>
+<tr><td>Discovery / keys</td><td><code>/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test</code>, <code>/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test</code></td></tr>
+<tr><td>Perimeter</td><td>Akamai EdgeSuite in front of WebSEAL</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall</div>Two issuers exist in this design: <code>csl</code> (upstream) and <code>ciam</code> (broker). The portal must only trust tokens whose <code>iss</code> is <code>ciam</code>'s <em>external</em> URL. The audit found the Provider ID configured as <code>https://localhost/sps/oauth/oauth20/15</code> (Module 05, 12).</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>Backend rejects token: “issuer mismatch”</td><td><code>iss</code> claim doesn't equal the issuer the library expects (e.g. <code>https://localhost/...</code>)</td>
+<td><pre><code>curl -s https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test | jq .issuer</code></pre></td><td>Align Provider ID with external URL (Module 05).</td></tr>
+<tr><td><code>invalid_grant</code> on <code>/token</code></td><td>Code reused, expired (~60 s) or <code>redirect_uri</code> differs from the authorize request</td>
+<td><pre><code>curl -sv -X POST https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/token \
+ -d grant_type=authorization_code -d code=AbC123 \
+ -d redirect_uri=https://portal.example.com/cb \
+ -d client_id=&lt;partner_portal_clientid&gt; -d client_secret=$SECRET</code></pre></td><td>Exchange immediately, once, with identical <code>redirect_uri</code>.</td></tr>
+<tr><td>Signature invalid</td><td>Stale cached JWKS after key rotation</td>
+<td><pre><code>jwt_kid=$(cut -d. -f1 &lt;&lt;&lt;"$ID_TOKEN" | tr '_-' '/+' | base64 -d 2&gt;/dev/null | jq -r .kid)
+curl -s .../jwks/PartnerLink_OIDC_Test | jq --arg k "$jwt_kid" '.keys[]|select(.kid==$k)'</code></pre></td><td>Refresh JWKS on unknown <code>kid</code>.</td></tr>
+<tr><td>Token readable by users — “is it leaking?”</td><td>JWTs are encoded, not encrypted</td><td><pre><code>cut -d. -f2 &lt;&lt;&lt;"$ID_TOKEN" | tr '_-' '/+' | base64 -d 2&gt;/dev/null | jq .</code></pre></td><td>Never put secrets in claims.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>Verify's OIDC provider lives at <code>https://&lt;tenant&gt;.verify.ibm.com/oidc/endpoint/default/</code> with discovery at <code>/.well-known/openid-configuration</code>.</div>
+<div class="table-wrap"><table>
+<tr><th>Concept</th><th>Legacy ISVA (<code>ciam</code>)</th><th>IBM Security Verify (SaaS)</th></tr>
+<tr><td>Authorization Server</td><td>AAC OAuth runtime, <code>/mga/sps/oauth/oauth20/*</code></td><td><code>/oidc/endpoint/default/authorize</code>, <code>/token</code></td></tr>
+<tr><td>Discovery</td><td><code>/metadata/PartnerLink_OIDC_Test</code></td><td><code>/oidc/endpoint/default/.well-known/openid-configuration</code></td></tr>
+<tr><td>Signing keys</td><td><code>/jwks/PartnerLink_OIDC_Test</code></td><td><code>/oidc/endpoint/default/jwks</code></td></tr>
+<tr><td>Client</td><td>OIDC client under the API Protection Definition</td><td>Application (Custom → OIDC) with client ID/secret</td></tr>
+<tr><td>Upstream IdP</td><td>InfoMap redirect to <code>csl</code></td><td>Identity Source (SAML/OIDC federated IdP)</td></tr>
+<tr><td>Brokering</td><td>Hand-written JS</td><td>Configuration in Identity Sources + Access Policies</td></tr>
+</table></div>
+<p>Details: <a href="13-verify-saas-migration.html">Module 13</a>. Next, see how the perimeter works in <a href="02-webseal-junctions.html">Module 02</a>.</p>
 </main>
 </body>
 </html>

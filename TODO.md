@@ -13,10 +13,10 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 - [x] README
 
 ## Phase 1 — `feat/phase1-core-isva`
-- [ ] 01 IAM & OIDC foundations
-- [ ] 02 WebSEAL, Akamai & junctions
-- [ ] 03 AAC & federation runtime
-- [ ] 04 LMI, deployment & pdadmin
+- [x] 01 IAM & OIDC foundations
+- [x] 02 WebSEAL, Akamai & junctions
+- [x] 03 AAC & federation runtime
+- [x] 04 LMI, deployment & pdadmin
 
 ## Phase 2 — `feat/phase2-oauth-oidc`
 - [ ] 05 API protection definitions
