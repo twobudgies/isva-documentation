@@ -147,8 +147,8 @@ async function renderMermaid() {
     const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs');
     mermaid.initialize({
       startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'loose',
-      sequence: { useMaxWidth: false, mirrorActors: false, wrap: false, width: 170, messageFontSize: 13 },
-      flowchart: { useMaxWidth: false, htmlLabels: true }, themeVariables: { fontSize: '14px' },
+      sequence: { useMaxWidth: true, mirrorActors: false, wrap: false, width: 150, messageFontSize: 13 },
+      flowchart: { useMaxWidth: true, htmlLabels: true }, themeVariables: { fontSize: '14px' },
     });
     await mermaid.run({ nodes: pres });
   } catch (e) {
@@ -158,17 +158,37 @@ async function renderMermaid() {
   const modal = el('div', { class: 'modal', role: 'dialog', 'aria-label': 'Diagram viewer' },
     '<div class="bar"><button data-z="-">－</button><button data-z="+">＋</button><button data-z="0">100%</button><button data-z="x">✕ Close</button></div><div class="stage"></div>');
   document.body.append(modal);
-  let scale = 1; const stage = modal.querySelector('.stage');
-  const apply = () => { const s = stage.querySelector('svg'); if (s) { s.style.transform = `scale(${scale})`; s.style.transformOrigin = 'top left'; } };
+  let scale = 1, base = 1000; const stage = modal.querySelector('.stage');
+  const apply = () => { const s = stage.querySelector('svg'); if (s) { s.setAttribute('width', Math.round(base * scale)); s.style.maxWidth = 'none'; } };
   modal.addEventListener('click', e => {
     const z = e.target.dataset && e.target.dataset.z; if (!z) return;
     if (z === 'x') modal.classList.remove('open'); else { scale = z === '+' ? scale * 1.25 : z === '-' ? scale / 1.25 : 1; apply(); }
   });
   addEventListener('keydown', e => { if (e.key === 'Escape') modal.classList.remove('open'); });
-  document.querySelectorAll('.diagram .expand').forEach(b => b.addEventListener('click', () => {
-    const svg = b.closest('.diagram').querySelector('svg'); if (!svg) return;
-    stage.innerHTML = ''; const c = svg.cloneNode(true); c.removeAttribute('style'); stage.append(c); scale = 1; modal.classList.add('open');
-  }));
+  const open = (wrap) => {
+    const svg = wrap.querySelector('svg'); if (!svg) return;
+    stage.innerHTML = ''; const c = svg.cloneNode(true); c.removeAttribute('style');
+    const vb = (svg.getAttribute('viewBox') || '').split(/[ ,]+/).map(Number);
+    base = vb.length === 4 ? vb[2] : svg.getBoundingClientRect().width;
+    c.setAttribute('width', base); c.removeAttribute('height'); stage.append(c); scale = 1; apply(); modal.classList.add('open');
+  };
+  document.querySelectorAll('.diagram').forEach(w => {
+    const b = w.querySelector('.expand'); if (b) b.addEventListener('click', () => open(w));
+    const svg = w.querySelector('svg'); if (svg) svg.addEventListener('click', () => open(w));
+    w.append(el('div', { class: 'hint' }, 'Click the diagram or “Expand” for full size · Esc to close'));
+  });
+}
+
+function decorate() {
+  document.querySelectorAll('main h2, main h3').forEach(h => {
+    if (!h.id) h.id = h.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+    h.append(el('a', { class: 'anchor', href: '#' + h.id, 'aria-label': 'Link to this section' }, '#'));
+  });
+  const bar = el('div', { id: 'readbar' }); const top = el('button', { id: 'toTop', type: 'button', 'aria-label': 'Back to top' }, '↑ Top');
+  document.body.append(bar, top);
+  top.onclick = () => scrollTo({ top: 0, behavior: 'smooth' });
+  const upd = () => { const d = document.documentElement; const p = d.scrollTop / Math.max(1, d.scrollHeight - d.clientHeight); bar.style.width = (p * 100) + '%'; top.classList.toggle('show', d.scrollTop > 600); };
+  addEventListener('scroll', upd, { passive: true }); upd();
 }
 
 function addCopyButtons() {
@@ -196,5 +216,5 @@ function fillProgress() {
 }
 
 try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-tagTables(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); fillProgress();
+tagTables(); buildSidebar(); buildTopbar(); buildPager(); buildToc(); wireSearch(); addCopyButtons(); fillProgress(); decorate();
 renderMermaid();

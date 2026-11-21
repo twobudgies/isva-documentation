@@ -22,7 +22,7 @@
 <li><strong>TLS termination</strong>: WebSEAL decrypts HTTPS using its certificate from a key database (<code>pdsrv.kdb</code>) and typically re-encrypts to the back end.</li>
 <li><strong>Junction</strong>: a mapping from a URL prefix (e.g. <code>/mga</code>) in WebSEAL's namespace to a back-end server. Everything under <code>/mga/…</code> is forwarded to the AAC/federation runtime.</li>
 <li><strong>Protected Object Space (POS)</strong>: a tree of every URL WebSEAL can serve (<code>/WebSEAL/&lt;host&gt;-default/mga/…</code>). ACLs and POPs are <em>attached</em> to nodes of this tree.</li>
-<li><strong>ACL</strong>: who may do what on a node (e.g. <code>unauthenticated</code> may <code>T</code>raverse and <code>r</code>ead). <strong>POP</strong>: extra conditions (IP restrictions, time of day, quality of protection, audit level).</li>
+<li><strong>ACL</strong>: who may do what on a node (e.g. <code>unauthenticated</code> may <code>T</code> = traverse and <code>r</code> = read). <strong>POP</strong>: extra conditions (IP restrictions, time of day, quality of protection, audit level).</li>
 <li><strong>Session</strong>: after login WebSEAL sets the cookie <code>PD-S-SESSION-ID</code> (opaque handle to a server-side cache entry).</li>
 </ul>
 
