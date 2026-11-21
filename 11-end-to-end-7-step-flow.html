@@ -3,14 +3,193 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>End-to-End 7-Step Flow — ISVA Docs</title>
+<title>11 · End-to-End 7-Step Flow — ISVA Docs</title>
+<meta name="description" content="Master walkthrough of the brokered OIDC login: partner_portal, ciam, csl and partner_portal_backend, with HTTP, header and cookie detail.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="11" data-stub="true">
+<body data-page="11">
 <main>
-<h1>11 · End-to-End 7-Step Flow</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>11 · End-to-End 7-Step Brokered OIDC Flow</h1>
+<p class="lead">The master walkthrough. Every request, redirect, cookie and header between <code>partner_portal</code>, <code>ciam</code>, <code>csl</code> and <code>partner_portal_backend</code>, in order, with what to look for in a HAR file at each step.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the conference badge desk</div>
+<p>You arrive at a conference (<code>partner_portal</code>) and ask to enter. They don't know you, so they send you to the <strong>registration desk</strong> (<code>ciam</code>). That desk doesn't check your ID itself: it sends you to the <strong>government ID office</strong> (<code>csl</code>), which checks your ID and a second proof (MFA). You walk back to the registration desk with a note; they issue a <strong>claim slip</strong> (authorization code) and send you back to the conference. The conference's <strong>back office</strong> (<code>partner_portal_backend</code>) privately hands the claim slip, plus the conference's own secret, to the registration desk and receives your <strong>badge</strong> (tokens), then checks the badge's hologram (signature).</p></div>
+<ul>
+<li><strong>Steps 1–5 are front channel</strong>: every message is a browser redirect (visible in the address bar and history).</li>
+<li><strong>Step 6</strong> hands the code from the browser to the backend.</li>
+<li><strong>Step 7 is back channel</strong>: server-to-server TLS, secrets allowed.</li>
+</ul>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart TB
+  U([Browser])
+  P[partner_portal]
+  C[ciam]
+  S[csl]
+  B[partner_portal_backend]
+  U -- "1 login click" --> P
+  P -- "1 redirect /authsvc" --> C
+  C -- "2 delegate /authb/login" --> S
+  S -- "3 password + MFA" --> U
+  S -- "4 redirect /authorize" --> C
+  C -- "5 redirect code+state" --> P
+  P -- "6 code" --> B
+  B -- "7 POST /token, GET /jwks" --> C
+  classDef front fill:#e8f1ff,stroke:#0f62fe,color:#0b1b3a
+  classDef back fill:#eef6ee,stroke:#198038,color:#0b2a14
+  class P,C,S front
+  class B back
+</pre>
+<figcaption>Figure 11.1 — Blue: front-channel actors. Green: back-channel actor</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — why two channels</div>The front channel is observable and tamperable by the user, so it carries only non-secret, short-lived values (<code>state</code>, <code>code</code>). Secrets (<code>client_secret</code>, <code>code_verifier</code>) and tokens only travel on the back channel between servers.</div>
+
+<h2 id="low">3. Low-level technical sequence (packet level)</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant P as partner_portal
+  participant A as Akamai
+  participant W as WebSEAL (ciam)
+  participant R as AAC runtime + rules
+  participant S as csl
+  participant B as partner_portal_backend
+  Note over U,P: STEP 1 initiate
+  U->>P: GET /login
+  P->>P: create state=789, nonce, code_verifier, store in portal session
+  P-->>U: 302 Location: https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=CID&scope=openid&state=789&code_challenge=H&code_challenge_method=S256
+  U->>A: GET /mga/sps/authsvc?... (TLS, SNI test.partnerlink.enterprise.com)
+  A->>W: forward (+X-Forwarded-For, True-Client-IP)
+  W->>R: junction /mga to /sps/authsvc
+  Note over R,S: STEP 2 delegate upstream (InfoMap_partnerLoginRedirect.js)
+  R->>R: validate client + PKCE, create state2/nonce2 (ciam-owned)
+  R-->>U: 302 Location: https://csl.example.com/authb/login?appId=27096415&redirect_uri=ENCODED_AUTHORIZE_URL&state=state2&nonce=nonce2<br/>Set-Cookie: PD-S-SESSION-ID=... #59; Secure #59; HttpOnly
+  Note over U,S: STEP 3 authenticate
+  U->>S: GET /authb/login?...
+  S-->>U: 200 login form
+  U->>S: POST /authb/login (username, password)
+  S-->>U: 200 MFA challenge
+  U->>S: POST /authb/mfa (otp)
+  S-->>U: 302 (success) Set-Cookie: csl session
+  Note over U,R: STEP 4 return to ciam
+  U->>A: GET /mga/sps/oauth/oauth20/authorize?clientId=CID&scope=openid&state=state2 (Cookie: PD-S-SESSION-ID)
+  A->>W: forward
+  W->>R: authorize
+  Note over R: STEP 5 validate, pre-token rule, mint code, post-token rule
+  R->>R: verify state2, nonce2, upstream result, single use
+  R->>R: partnerauthn_pre_token_generation.js
+  R->>R: create authorization_code (TTL 60s, bound to client, redirect_uri, code_challenge)
+  R->>R: partnerauthn_post_token_generation.js
+  R-->>U: 302 Location: https://portal.example.com/cb?code=AbC123&state=789 (portal state restored)
+  Note over U,B: STEP 6 pass code
+  U->>P: GET /cb?code=AbC123&state=789
+  P->>P: compare state with stored 789
+  P->>B: POST /api/session {code, code_verifier} (internal TLS)
+  Note over B,R: STEP 7 back channel
+  B->>A: POST /mga/sps/oauth/oauth20/token<br/>Content-Type: application/x-www-form-urlencoded<br/>grant_type=authorization_code, code=AbC123, redirect_uri, client_id, client_secret, code_verifier
+  A->>W: forward
+  W->>R: token endpoint
+  R-->>B: 200 {"access_token":"...","id_token":"eyJ...","token_type":"bearer","expires_in":600}
+  B->>A: GET /mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test
+  A-->>B: 200 {"keys":[...]}
+  B->>B: verify RS256, iss, aud=CID, exp, nonce
+  B-->>P: 200 user session
+  P-->>U: 200 logged in
+</pre>
+<figcaption>Figure 11.2 — Full sequence. Use the expand button for full-screen reading.</figcaption></figure>
+
+<h3>Step-by-step reference</h3>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>From → To</th><th>Request</th><th>Key response / cookie</th><th>HAR check</th></tr>
+<tr><td>1</td><td>Browser → <code>ciam</code></td><td><code>GET /mga/sps/authsvc?client=&lt;partner_portal_clientid&gt;&amp;scope=openid&amp;state=789</code></td><td>302 to <code>csl</code>; <code>Set-Cookie: PD-S-SESSION-ID</code></td><td>First 302 <code>Location</code> hostname = <code>csl</code></td></tr>
+<tr><td>2</td><td><code>ciam</code> → <code>csl</code> (via browser)</td><td><code>GET /authb/login?appId=27096415/authorize?appId=123&amp;scope=openid&amp;state=789</code> <em>(current, malformed)</em></td><td>Form page</td><td>Count <code>?</code> in the URL; look for <code>%3F</code> (encoded) in <code>redirect_uri</code></td></tr>
+<tr><td>3</td><td>User ↔ <code>csl</code></td><td>POST credentials, POST OTP</td><td>Upstream session cookie (<code>csl</code> domain)</td><td>No credentials ever appear in <code>ciam</code>/portal requests</td></tr>
+<tr><td>4</td><td><code>csl</code> → <code>ciam</code> (via browser)</td><td><code>GET /mga/sps/oauth/oauth20/authorize?clientId=…&amp;scope=openid&amp;state=789</code></td><td>Carries <code>PD-S-SESSION-ID</code></td><td>Cookie present? If not → loop</td></tr>
+<tr><td>5</td><td><code>ciam</code> → Browser</td><td>—</td><td>302 to <code>redirect_uri?code=…&amp;state=789</code></td><td><code>state</code> equals the portal's; code is opaque, short</td></tr>
+<tr><td>6</td><td>Browser → <code>partner_portal</code> → backend</td><td><code>GET /cb?code=…</code>, internal POST</td><td>Portal session</td><td>Code used once, quickly</td></tr>
+<tr><td>7</td><td>Backend → <code>ciam</code></td><td><code>POST /mga/sps/oauth/oauth20/token</code></td><td>200 JSON with <code>id_token</code>, <code>access_token</code></td><td>Not visible in browser HAR (back channel): check backend logs</td></tr>
+</table></div>
+
+<h3>Cookie lifecycle</h3>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  A[GET /authsvc] -->|Set-Cookie PD-S-SESSION-ID| B[ciam session]
+  B --> C[redirect to csl]
+  C --> D[csl sets its own session cookie<br/>different domain]
+  D --> E[return to /authorize<br/>browser sends PD-S-SESSION-ID]
+  E --> F[code issued]
+  F --> G[portal sets its own session cookie]
+</pre>
+<figcaption>Figure 11.3 — Three independent cookie jars: ciam, csl, portal</figcaption></figure>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Concern</th><th>Today</th><th>Target (Module 12)</th></tr>
+<tr><td><code>state</code> on <code>ciam↔csl</code></td><td>Portal's <code>789</code> passed through</td><td>ciam-generated <code>state2</code>, portal's restored at Step 5</td></tr>
+<tr><td><code>nonce</code></td><td>Not isolated per leg</td><td>Separate <code>nonce2</code>; portal <code>nonce</code> placed in id_token</td></tr>
+<tr><td>PKCE</td><td>Absent</td><td><code>S256</code> required end-to-end</td></tr>
+<tr><td>Nested URL (Step 2)</td><td><code>/authb/login?appId=27096415/authorize?appId=123…</code></td><td>Encoded <code>redirect_uri</code></td></tr>
+<tr><td><code>iss</code></td><td><code>https://localhost/sps/oauth/oauth20/15</code></td><td>External URL</td></tr>
+<tr><td>Metadata/JWKS reachability</td><td>Blocked by Akamai/ACL for backend</td><td>Allowlisted + <code>unauthenticated Tr</code></td></tr>
+<tr><td>ROPC</td><td>Enabled</td><td>Disabled</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — where attacks land in this flow</div>
+<ul><li><strong>Step 1/4</strong>: forged or reused <code>state</code> (login CSRF).</li><li><strong>Step 5</strong>: code interception (no PKCE) or <code>redirect_uri</code> tampering.</li><li><strong>Step 6</strong>: code replay by a second client.</li><li><strong>Step 7</strong>: stolen <code>client_secret</code>; unvalidated <code>iss/aud/nonce</code>.</li></ul></div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook (per step)</h2>
+<div class="table-wrap"><table>
+<tr><th>Step</th><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>1</td><td>403 Akamai page</td><td>WAF</td><td><code>curl -sI "https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=1"</code></td><td>Tune WAF rule for <code>/mga/sps/authsvc</code>.</td></tr>
+<tr><td>2</td><td><code>csl</code> “bad request”</td><td>Double <code>?</code>, unencoded</td><td>Decode the <code>Location</code> header</td><td>Encode (Module 09).</td></tr>
+<tr><td>4</td><td>Loop to <code>/authsvc</code></td><td>Cookie not sent / <code>SameSite</code></td><td>HAR request cookies</td><td>Cookie attributes; same host for both legs.</td></tr>
+<tr><td>5</td><td>Portal: “state mismatch”</td><td>ciam returned <code>state2</code> instead of portal state</td><td>Compare 302 <code>Location</code></td><td>Restore <code>portalState</code> in post-token step.</td></tr>
+<tr><td>7</td><td><code>invalid_grant</code></td><td>Reused/expired code, wrong <code>redirect_uri</code>, wrong verifier</td><td><code>curl -s -X POST …/token -d grant_type=authorization_code …</code></td><td>Exchange once, within 60 s.</td></tr>
+<tr><td>7</td><td><code>iss</code> mismatch</td><td>localhost Provider ID</td><td><code>curl -s …/metadata/PartnerLink_OIDC_Test | jq .issuer</code></td><td>Module 05.</td></tr>
+<tr><td>7</td><td>Cannot fetch JWKS</td><td>Akamai/ACL block</td><td><code>curl -sI …/jwks/PartnerLink_OIDC_Test</code> from the backend host</td><td>Module 07.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>The same 7 steps exist, but Steps 2–5 are internal to the tenant: <code>partner_portal</code> redirects to <code>https://&lt;tenant&gt;.verify.ibm.com/oidc/endpoint/default/authorize</code>; Verify federates to <code>csl</code> (Identity Source), applies the access policy, and returns <code>code</code> to the portal.</div>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant P as partner_portal
+  participant V as Verify tenant
+  participant S as csl (Identity Source)
+  participant B as partner_portal_backend
+  P-->>U: 302 /oidc/endpoint/default/authorize?client_id=CID&scope=openid&state=S&nonce=N&code_challenge=H&code_challenge_method=S256
+  U->>V: GET authorize
+  V-->>U: 302 to csl (tenant-generated state/nonce/PKCE)
+  U->>S: login + MFA
+  S-->>U: 302 back to tenant
+  V->>V: access policy, attribute mapping
+  V-->>U: 302 redirect_uri?code=...&state=S
+  U->>P: callback
+  P->>B: code
+  B->>V: POST /oidc/endpoint/default/token
+  V-->>B: id_token + access_token
+  B->>V: GET /oidc/endpoint/default/jwks
+</pre>
+<figcaption>Figure 11.4 — Target flow</figcaption></figure>
+<div class="table-wrap"><table>
+<tr><th>Step</th><th>Legacy</th><th>Verify SaaS</th></tr>
+<tr><td>1</td><td><code>/mga/sps/authsvc</code></td><td><code>/oidc/endpoint/default/authorize</code></td></tr>
+<tr><td>2</td><td>InfoMap rule</td><td>Identity Source redirect (managed)</td></tr>
+<tr><td>3</td><td><code>csl</code> login+MFA</td><td>Unchanged (or Verify-native MFA)</td></tr>
+<tr><td>4</td><td><code>/oauth/oauth20/authorize</code></td><td>Internal callback of the tenant</td></tr>
+<tr><td>5</td><td>pre/post-token JS</td><td>Access policy + attribute mapping (+ webhooks)</td></tr>
+<tr><td>7</td><td><code>/oauth/oauth20/token</code>, <code>/jwks/PartnerLink_OIDC_Test</code></td><td><code>/oidc/endpoint/default/token</code>, <code>/jwks</code></td></tr>
+</table></div>
+<p>Next: <a href="12-security-audit-hardening.html">Module 12 — Security audit &amp; hardening</a>.</p>
 </main>
 </body>
 </html>

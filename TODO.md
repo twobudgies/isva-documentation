@@ -29,7 +29,7 @@ Legend: `[x]` done · `[ ]` not started. `main` is protected: all work lands via
 - [x] 10 STSUU & session claims
 
 ## Phase 4 — `feat/phase4-e2e-security-migration`
-- [ ] 11 End-to-end 7-step flow
+- [x] 11 End-to-end 7-step flow
 - [ ] 12 Security audit & hardening
 - [ ] 13 Migration to Verify SaaS
 
