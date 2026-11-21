@@ -12,7 +12,7 @@ export const PAGES = [
   { id: '09', file: '09-infomap-mapping-rules.html', title: 'InfoMap & Mapping Rules (JS)', phase: 'Phase 3 — Custom Rules & STSUU', branch: 'feat/phase3-custom-rules-stsuu', status: 'done' },
   { id: '10', file: '10-stsuu-session-claims.html', title: 'STSUU & Session Claims', phase: 'Phase 3 — Custom Rules & STSUU', branch: 'feat/phase3-custom-rules-stsuu', status: 'done' },
   { id: '11', file: '11-end-to-end-7-step-flow.html', title: 'End-to-End 7-Step Flow', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
-  { id: '12', file: '12-security-audit-hardening.html', title: 'Security Audit & Hardening', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'todo' },
+  { id: '12', file: '12-security-audit-hardening.html', title: 'Security Audit & Hardening', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
   { id: '13', file: '13-verify-saas-migration.html', title: 'Migration to Verify SaaS', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'todo' },
   { id: '14', file: '14-troubleshooting-har-playbook.html', title: 'Troubleshooting & HAR Playbook', phase: 'Operations', branch: 'feat/troubleshooting-and-qa', status: 'todo' },
   { id: 'P', file: 'progress.html', title: 'Progress Tracker', phase: 'Operations', branch: 'feat/site-scaffold-and-nav', status: 'done' },
