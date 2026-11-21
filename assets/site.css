@@ -177,3 +177,9 @@ h2:hover .anchor,h3:hover .anchor,.anchor:focus{opacity:1}
 main:focus{outline:none}
 @media(max-width:900px){#here{display:none}#topbar .tbtn#printBtn{display:none}}
 @media print{#valsPanel,.skip{display:none!important}}
+
+.pagefoot{margin-top:28px;padding-top:16px;border-top:1px solid var(--line);font-size:.82rem;color:var(--muted)}
+.pagefoot .links{display:flex;flex-wrap:wrap;gap:8px 18px;margin-bottom:8px}
+.pagefoot a{color:var(--brand);text-decoration:none}.pagefoot a:hover{text-decoration:underline}
+.pagefoot p{margin:.4em 0;max-width:80ch}
+@media print{.pagefoot .links{display:none}}

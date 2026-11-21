@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Read the FAQ first
+    url: https://twobudgies.github.io/isva-documentation/faq.html
+    about: Verification status and common questions
