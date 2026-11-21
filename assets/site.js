@@ -220,7 +220,7 @@ async function renderMermaid() {
     const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs');
     mermaid.initialize({
       startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'loose',
-      sequence: { useMaxWidth: true, mirrorActors: false, wrap: false, width: 150, messageFontSize: 13 },
+      sequence: { useMaxWidth: true, mirrorActors: false, wrap: true, width: 150, messageFontSize: 13 },
       flowchart: { useMaxWidth: true, htmlLabels: true }, themeVariables: { fontSize: '14px' },
     });
     await mermaid.run({ nodes: pres });
@@ -238,6 +238,17 @@ async function renderMermaid() {
     if (z === 'x') modal.classList.remove('open'); else { scale = z === '+' ? scale * 1.25 : z === '-' ? scale / 1.25 : 1; apply(); }
   });
   addEventListener('keydown', e => { if (e.key === 'Escape') modal.classList.remove('open'); });
+  // Keep text legible: shrink to fit, but never below ~65% of natural size (then scroll sideways)
+  document.querySelectorAll('.diagram').forEach(w => {
+    const svg = w.querySelector('svg'); if (!svg) return;
+    const vb = (svg.getAttribute('viewBox') || '').split(/[ ,]+/).map(Number); if (vb.length !== 4) return;
+    const natural = vb[2], avail = w.clientWidth - 24;
+    if (natural > avail) {
+      const target = Math.max(avail, Math.round(natural * 0.65));
+      svg.style.maxWidth = 'none'; svg.style.width = target + 'px'; svg.style.height = 'auto';
+      if (target > avail) w.classList.add('scrolls');
+    }
+  });
   const open = (wrap) => {
     const svg = wrap.querySelector('svg'); if (!svg) return;
     stage.innerHTML = ''; const c = svg.cloneNode(true); c.removeAttribute('style');
@@ -248,7 +259,7 @@ async function renderMermaid() {
   document.querySelectorAll('.diagram').forEach(w => {
     const b = w.querySelector('.expand'); if (b) b.addEventListener('click', () => open(w));
     const svg = w.querySelector('svg'); if (svg) svg.addEventListener('click', () => open(w));
-    w.append(el('div', { class: 'hint' }, 'Click the diagram or “Expand” for full size · Esc to close'));
+    w.append(el('div', { class: 'hint' }, (w.classList.contains('scrolls') ? 'Scroll sideways to pan · ' : '') + 'Click the diagram or “Expand” for full size · Esc to close'));
   });
 }
 

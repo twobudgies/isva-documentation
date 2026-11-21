@@ -35,13 +35,13 @@
 <figure class="diagram">
 <pre class="mermaid">
 flowchart LR
-  A[/authsvc/] --> R1[[InfoMap_partnerLoginRedirect.js<br/>redirect out + validate return]]
-  R1 --> CSL[csl]
+  A[/authsvc/] --> R1[[InfoMap rule<br/>redirect + validate]]
+  R1 --> CSL[csl login]
   CSL --> AZ[/authorize/]
-  AZ --> R2[[partnerauthn_pre_token_generation.js<br/>gate + enrich]]
-  R2 --> MINT[Mint authorization code]
-  MINT --> R3[[partnerauthn_post_token_generation.js<br/>audit + side effects]]
-  R3 --> REDIR[302 to partner_portal redirect_uri]
+  AZ --> R2[[Pre-token rule<br/>gate + enrich]]
+  R2 --> MINT[Mint code]
+  MINT --> R3[[Post-token rule<br/>audit]]
+  R3 --> REDIR[302 to portal]
 </pre>
 <figcaption>Figure 9.1 — Where each rule hooks into the flow</figcaption></figure>
 <div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — rule trust boundary</div>
