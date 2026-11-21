@@ -32,17 +32,19 @@
 <figure class="diagram">
 <pre class="mermaid">
 flowchart TB
-  subgraph Before
-    B1[portal state=789] --> B2[ciam forwards 789 to csl]
-    B2 --> B3[csl returns 789]
-    B3 --> B4[ciam accepts, returns 789]
+  subgraph Before["BEFORE: one state shared by both legs"]
+    direction LR
+    B1["portal state=789"] --> B2["ciam forwards 789 to csl"] --> B3["csl returns 789"] --> B4["ciam accepts and returns 789"]
   end
-  subgraph After
-    A1[portal state=789 + PKCE challenge] --> A2[ciam stores 789, creates state2 + nonce2]
-    A2 --> A3[csl returns state2]
-    A3 --> A4[ciam verifies state2, single use]
-    A4 --> A5[ciam returns code + portal state 789]
+  subgraph After["AFTER: each leg has its own state, PKCE and nonce"]
+    direction LR
+    A1["portal state=789<br/>+ PKCE challenge"] --> A2["ciam stores 789<br/>creates state2 + nonce2"] --> A3["csl returns state2"] --> A4["ciam verifies state2<br/>single use"] --> A5["ciam returns code<br/>+ portal state 789"]
   end
+  Before ~~~ After
+  classDef bad fill:#fff1f0,stroke:#da1e28,color:#3b0a0d
+  classDef good fill:#eef6ee,stroke:#198038,color:#0b2a14
+  class B1,B2,B3,B4 bad
+  class A1,A2,A3,A4,A5 good
 </pre>
 <figcaption>Figure 12.1 — Isolating the two OAuth legs</figcaption></figure>
 <div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — two relationships, two sets of protections</div>

@@ -216,6 +216,14 @@ async function renderMermaid() {
   }
   const dark = (document.documentElement.dataset.theme === 'dark') ||
     (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+  // Few actors + long messages read better unwrapped; many actors need wrapping to fit.
+  pres.forEach(p => {
+    const t = p.textContent;
+    if (/^\s*sequenceDiagram/m.test(t)) {
+      const actors = (t.match(/^\s*(participant|actor)\s/gm) || []).length;
+      if (actors <= 5) p.textContent = '%%{init: {"sequence": {"wrap": true, "width": 210}}}%%\n' + t.trim();
+    }
+  });
   try {
     const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs');
     mermaid.initialize({
