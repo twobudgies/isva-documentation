@@ -132,7 +132,7 @@ function buildToc() {
   const slot = document.getElementById('toc'); if (!slot) return;
   const hs = [...document.querySelectorAll('main h2[id]')];
   slot.className = 'toc';
-  slot.innerHTML = '<b>On this page</b><ol>' + hs.map(h => `<li><a href="#${h.id}">${h.textContent}</a></li>`).join('') + '</ol>';
+  slot.innerHTML = '<b>On this page</b><ul>' + hs.map(h => `<li><a href="#${h.id}">${h.textContent.replace(/#$/, '')}</a></li>`).join('') + '</ul>';
 }
 
 
