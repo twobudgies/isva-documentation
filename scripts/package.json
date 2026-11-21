@@ -1,0 +1,7 @@
+{
+  "name": "isva-docs-verify",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only verification (links, anchors, Mermaid syntax). Not needed to serve the site.",
+  "dependencies": { "jsdom": "^25.0.1", "mermaid": "^11.4.1" }
+}

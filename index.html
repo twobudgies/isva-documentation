@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ISVA to Verify SaaS — Zero-to-Hero CIAM Docs</title>
+<meta name="description" content="Interactive documentation for a brokered OIDC CIAM architecture on IBM Security Verify Access (ISVA) and the migration path to IBM Security Verify (SaaS).">
+<link rel="stylesheet" href="assets/site.css">
+<script type="module" src="assets/site.js"></script>
+</head>
+<body data-page="00">
+<main>
+<h1>ISVA → IBM Security Verify: Zero-to-Hero CIAM Documentation</h1>
+<p class="lead">A 14-module, diagram-first guide to a real-world brokered OpenID Connect architecture built on IBM Security Verify Access (ISVA 10.x / 11.x), its security audit findings, and the roadmap to IBM Security Verify (Cloud/SaaS). Written so that someone who has never touched ISVA, OAuth 2.0 or a reverse proxy can follow every packet, cookie and rule.</p>
+
+<div class="callout note"><div class="ttl">🔒 Sanitized names</div>
+All hostnames, client IDs and app IDs on this site are placeholders: <code>partner_portal</code>, <code>partner_portal_backend</code>, <code>ciam</code>, <code>csl</code>, <code>PartnerLink_OIDC_Test</code>, <code>&lt;partner_portal_clientid&gt;</code>. Values such as <code>test.partnerlink.enterprise.com</code> and <code>isva-uat01.internal.net</code> are illustrative. Replace them with your own when following along. Menu paths and CLI syntax are written from ISVA 10.x/11.x knowledge; items marked <em>“verify on your appliance”</em> should be confirmed against your firmware level.</div>
+
+<div id="toc"></div>
+
+<h2 id="exec">1. Executive overview</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the airport analogy</div>
+<p>Imagine an international airport. <strong>Passport control</strong> (the upstream identity provider <code>csl</code>) checks who you really are. The <strong>airline gate agent</strong> (the broker <code>ciam</code>) looks at your passport stamp and issues a <strong>boarding pass</strong> (tokens) that is valid for one specific flight (the application). The <strong>flight crew</strong> (<code>partner_portal_backend</code>) doesn't re-check your passport; it verifies the boarding pass's hologram (the digital signature) and lets you in. The security perimeter around the whole terminal is the CDN/WAF and reverse proxy.</p></div>
+<p>The enterprise customer-identity (CIAM) platform lets partner users log in to <code>partner_portal</code> without the portal ever handling a password. Authentication is delegated upstream to <code>csl</code>; ISVA acts as the <strong>identity broker and OAuth/OIDC authorization server</strong> that mints standards-based tokens for the portal. This site documents that platform end to end, flags where it deviates from current best practice, and maps each legacy component to its IBM Security Verify (SaaS) successor.</p>
+
+<h2 id="arch">2. Architecture at a glance</h2>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive</div>
+Four participants, three network zones. The browser only ever talks to the front channel (redirects); the confidential token exchange happens on a server-to-server back channel.</div>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  U([User Browser])
+  subgraph APP[Application Zone]
+    FE[partner_portal<br/>Client Frontend]
+    BE[partner_portal_backend<br/>Confidential Backend]
+  end
+  subgraph EDGE[Perimeter]
+    AK[Akamai EdgeSuite<br/>CDN / WAF / IP allowlist]
+  end
+  subgraph ISVA[ciam - Legacy ISVA]
+    WS[WebSEAL reverse proxy<br/>junction /mga]
+    AAC[AAC + Federation runtime<br/>/mga/sps/...]
+    APD[(API Protection Definition<br/>PartnerLink_OIDC_Test)]
+    JS[[InfoMap + Pre/Post-token JS]]
+  end
+  CSL[csl<br/>Upstream IdP<br/>password + MFA]
+  U -- 1 /authsvc redirect --> AK --> WS --> AAC
+  AAC -- 2 delegate login --> CSL
+  CSL -- 4 back to /authorize --> AK
+  AAC --- APD
+  AAC --- JS
+  AAC -- 5 code + state --> FE
+  FE -- 6 code --> BE
+  BE -- 7 POST /token + JWKS fetch --> AK
+</pre>
+<figcaption>Figure 0.1 — Participants and trust boundaries</figcaption></figure>
+
+<h3>The 7-step brokered login in one picture</h3>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as User Browser
+  participant P as partner_portal
+  participant C as ciam (ISVA)
+  participant S as csl (Upstream IdP)
+  participant B as partner_portal_backend
+  P->>U: 302 to ciam /mga/sps/authsvc?client=...&scope=openid&state=789
+  U->>C: GET /mga/sps/authsvc
+  C->>U: 302 to csl /authb/login (InfoMap_partnerLoginRedirect.js)
+  U->>S: GET /authb/login
+  S->>S: username/password + MFA
+  S->>U: 302 to ciam /mga/sps/oauth/oauth20/authorize
+  U->>C: GET /authorize (authenticated)
+  C->>C: pre-token JS, mint code, post-token JS
+  C->>U: 302 to partner_portal redirect_uri?code=...&state=789
+  U->>P: GET redirect_uri?code=...
+  P->>B: pass code
+  B->>C: POST /mga/sps/oauth/oauth20/token (code, client_id, client_secret)
+  C-->>B: id_token + access_token
+  B->>C: GET /jwks/PartnerLink_OIDC_Test
+  B->>B: verify signature, iss, aud, exp, nonce
+</pre>
+<figcaption>Figure 0.2 — Condensed sequence. Full packet-level detail is in <a href="11-end-to-end-7-step-flow.html">Module 11</a>.</figcaption></figure>
+
+<h2 id="roadmap">3. Learning roadmap</h2>
+<p>Read in order like a book, or jump anywhere using the sidebar. Each module follows the same six-part template.</p>
+<div class="table-wrap"><table>
+<tr><th>Template section</th><th>What you get</th></tr>
+<tr><td>1 · Zero-knowledge explanation</td><td>An analogy and the fundamentals before any jargon.</td></tr>
+<tr><td>2 · High-level diagram</td><td>The big picture as a flowchart or sequence.</td></tr>
+<tr><td>3 · Low-level diagram</td><td>Autonumbered sequence with verbs, paths, cookies, headers, payloads.</td></tr>
+<tr><td>4 · Environment deep dive</td><td>Mapped to <code>partner_portal</code>, <code>ciam</code>, <code>csl</code>, <code>PartnerLink_OIDC_Test</code>…</td></tr>
+<tr><td>5 · Pitfalls &amp; troubleshooting</td><td>Symptom → root cause → <code>curl</code>/HAR check → fix.</td></tr>
+<tr><td>6 · Verify SaaS mapping</td><td>Side-by-side legacy vs. SaaS table.</td></tr>
+</table></div>
+<div class="grid">
+<a class="card" href="01-iam-oidc-foundations.html"><b>01 · Foundations</b><span>AuthN vs AuthZ, OAuth 2.0, OIDC, JWT, JWKS, brokering.</span></a>
+<a class="card" href="02-webseal-junctions.html"><b>02 · WebSEAL &amp; Junctions</b><span>Akamai, TLS, ACLs/POPs, sessions, <code>/mga</code>.</span></a>
+<a class="card" href="03-aac-federation-runtime.html"><b>03 · AAC &amp; Federation</b><span>Runtime, Liberty, CBA, step-up.</span></a>
+<a class="card" href="04-lmi-deployment-ops.html"><b>04 · LMI &amp; Ops</b><span>Deploy, tracing, <code>pdadmin</code>.</span></a>
+<a class="card" href="05-api-protection-definitions.html"><b>05 · API Protection</b><span>Definitions, grants, <code>iss</code>.</span></a>
+<a class="card" href="06-oauth-oidc-clients.html"><b>06 · Clients &amp; PKCE</b><span>Registration, redirect_uri, S256.</span></a>
+<a class="card" href="07-metadata-jwks-discovery.html"><b>07 · Metadata &amp; JWKS</b><span>Discovery, keys, rotation, 403/302.</span></a>
+<a class="card" href="08-authsvc-mechanisms-policies.html"><b>08 · authsvc</b><span>Mechanisms, policies, workflows.</span></a>
+<a class="card" href="09-infomap-mapping-rules.html"><b>09 · JS Rules</b><span>InfoMap, pre/post-token.</span></a>
+<a class="card" href="10-stsuu-session-claims.html"><b>10 · STSUU</b><span>Principal, attributes, claims.</span></a>
+<a class="card" href="11-end-to-end-7-step-flow.html"><b>11 · End-to-End</b><span>The master walkthrough.</span></a>
+<a class="card" href="12-security-audit-hardening.html"><b>12 · Audit &amp; Hardening</b><span>Five findings and fixes.</span></a>
+<a class="card" href="13-verify-saas-migration.html"><b>13 · Migration</b><span>Legacy → Verify SaaS.</span></a>
+<a class="card" href="14-troubleshooting-har-playbook.html"><b>14 · Runbook</b><span>HAR, JWT, curl suite.</span></a>
+</div>
+
+<h2 id="audit">4. Audit findings summary</h2>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — five findings</div>
+<ol>
+<li><strong>state/nonce isolation</strong> — <code>ciam</code> must create its own <code>state</code>/<code>nonce</code> for the <code>ciam↔csl</code> leg instead of forwarding the portal's <code>state=789</code>.</li>
+<li><strong>PKCE S256</strong> not enforced on <code>/authsvc</code> and <code>/authorize</code>.</li>
+<li><strong>Malformed nested URL</strong> — double <code>?</code> and missing URL-encoding in <code>/authb/login?appId=…/authorize?appId=123…</code>.</li>
+<li><strong>Provider ID is <code>https://localhost/sps/oauth/oauth20/15</code></strong> (<code>iss</code> mismatch) and the legacy ROPC grant is still enabled.</li>
+<li><strong>Edge/ACL blocks</strong> — Akamai IP allowlist and WebSEAL <code>unauth</code> ACLs on <code>/metadata</code> and <code>/jwks</code> must permit <code>partner_portal_backend</code>.</li>
+</ol></div>
+
+<h2 id="saas">5. Where this is heading</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>
+The target is <code>https://&lt;tenant&gt;.verify.ibm.com/oidc/endpoint/default/…</code>: no appliance, no junctions, no Rhino JavaScript. WebSEAL and <code>/mga</code> disappear, the API Protection Definition becomes an Application (OIDC) registration, InfoMap becomes an Identity Source/Access Policy, and pre/post-token scripts become attribute mappings, functions and webhooks. See <a href="13-verify-saas-migration.html">Module 13</a>.</div>
+
+<h2 id="progress">6. Progress tracker</h2>
+<div class="bar-out"><div class="bar-in" id="overallBar"></div></div>
+<p id="overallTxt"></p>
+<p><a href="progress.html">Open the full progress tracker →</a> · Source of truth: <a href="TODO.md">TODO.md</a> in the repository root.</p>
+<div class="legend"><span>✅ done</span><span>🚧 in progress</span><span>⬜ not started</span></div>
+</main>
+</body>
+</html>
