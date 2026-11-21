@@ -3,14 +3,137 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>API Protection Definitions — ISVA Docs</title>
+<title>05 · API Protection Definitions — ISVA Docs</title>
+<meta name="description" content="API Protection Definitions in ISVA: PartnerLink_OIDC_Test, grant types, token lifetimes, and the Provider ID (iss) configuration.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="05" data-stub="true">
+<body data-page="05">
 <main>
 <h1>05 · API Protection Definitions</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<p class="lead">An API Protection Definition is the “rulebook” of an OAuth/OIDC authorization server inside ISVA. <code>PartnerLink_OIDC_Test</code> defines which grants are allowed, how long tokens live, which mapping rules run and — critically — what the <code>iss</code> claim says.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the passport office rulebook</div>
+<p>A passport office has rules: who may apply, which documents are accepted, how long a passport is valid, and which country name is printed on it. A <strong>definition</strong> is that rulebook for tokens. One ISVA appliance can host many definitions (many “countries”), each with its own clients, token lifetimes and issuer name.</p></div>
+<h3>Grant types — the different ways to ask for a token</h3>
+<div class="table-wrap"><table>
+<tr><th>Grant</th><th>Who uses it</th><th>Safe?</th><th>This environment</th></tr>
+<tr><td><strong>Authorization Code</strong> (+PKCE)</td><td>Web/mobile apps with a human user</td><td>✅ Recommended</td><td>Used by <code>partner_portal_backend</code></td></tr>
+<tr><td><strong>Client Credentials</strong></td><td>Machine-to-machine, no user</td><td>✅ with strong secret/mTLS</td><td>Enable only if a service needs it</td></tr>
+<tr><td><strong>Refresh Token</strong></td><td>Renew access without re-login</td><td>⚠️ rotate and bind</td><td>Optional</td></tr>
+<tr><td><strong>Resource Owner Password Credentials (ROPC)</strong></td><td>App collects username/password itself</td><td>❌ Deprecated (removed in OAuth 2.1)</td><td><strong>Currently enabled — disable</strong></td></tr>
+<tr><td>Implicit</td><td>Old SPAs</td><td>❌ Deprecated</td><td>Disable</td></tr>
+</table></div>
+<p>ROPC defeats the whole point of brokered login: the app (and therefore any attacker who compromises it) would see raw passwords and bypass upstream MFA at <code>csl</code>.</p>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph DEF[API Protection Definition: PartnerLink_OIDC_Test]
+    G[Allowed grant types]
+    T[Token lifetimes + token cache]
+    P[Provider ID = iss claim]
+    K[Signing key + algorithm]
+    M[Mapping rules<br/>pre-token / post-token]
+    C[Registered clients<br/>partner_portal]
+  end
+  C --> G
+  G --> T
+  P --> ISS[[iss in id_token + metadata.issuer]]
+  K --> SIG[[JWS signature + /jwks]]
+  M --> TOK[[Minted tokens]]
+  T --> TOK
+  ISS --> TOK
+  SIG --> TOK
+</pre>
+<figcaption>Figure 5.1 — What one definition controls</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — definition vs client</div>
+Definition = server-side policy. Client = a registered app <em>inside</em> a definition. Both must agree: a client can only use grants the definition enables, and its tokens carry the definition's <code>iss</code>.</div>
+
+<h2 id="low">3. Low-level technical sequence — what the definition decides at <code>/token</code></h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as partner_portal_backend
+  participant W as WebSEAL /mga
+  participant D as Definition PartnerLink_OIDC_Test
+  participant R as Mapping rules
+  participant TC as Token cache
+  B->>W: POST /mga/sps/oauth/oauth20/token<br/>Authorization: Basic base64(client_id:client_secret)<br/>grant_type=authorization_code, code, redirect_uri, code_verifier
+  activate D
+  W->>D: forward (junction)
+  D->>D: authenticate client (secret), look up client in definition
+  alt grant type not enabled
+    D-->>B: 400 {"error":"unsupported_grant_type"}
+  else code unknown, expired or used
+    D-->>B: 400 {"error":"invalid_grant"}
+  else ok
+    D->>R: run pre-token rule (partnerauthn_pre_token_generation.js)
+    R-->>D: extra claims or rejection
+    D->>D: build id_token (iss = Provider ID), sign RS256
+    D->>TC: store access token (lifetime N seconds)
+    D->>R: run post-token rule (partnerauthn_post_token_generation.js)
+    D-->>B: 200 {"access_token":"...","id_token":"eyJ...","token_type":"bearer","expires_in":3600,"scope":"openid"}
+  end
+  deactivate D
+  Note over B,D: ROPC request would be: grant_type=password, username, password (should return unsupported_grant_type once disabled)
+</pre>
+<figcaption>Figure 5.2 — Token endpoint decision tree</figcaption></figure>
+
+<h3>Provider ID and the <code>iss</code> claim</h3>
+<p>The <strong>Provider ID</strong> becomes the <code>iss</code> value in every <code>id_token</code> and the <code>issuer</code> in <code>/metadata</code>. The audit found it set to <code>https://localhost/sps/oauth/oauth20/15</code> — an internal value. Clients validating the token compare <code>iss</code> against the URL they used for discovery (<code>https://test.partnerlink.enterprise.com/...</code>), so validation fails or the validator is relaxed (a security regression).</p>
+<pre><code># what the server currently advertises
+curl -s https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test | jq '{issuer, authorization_endpoint, token_endpoint, jwks_uri}'
+# desired
+{
+  "issuer": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test",
+  "authorization_endpoint": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/authorize",
+  "token_endpoint": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/token",
+  "jwks_uri": "https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test"
+}</code></pre>
+<div class="callout note"><div class="ttl">Verify on your appliance</div>The exact field is labelled “Provider ID” (or Issuer Identifier) under the definition's OpenID Connect settings, and the value is a URL string. Choose any <em>stable external</em> URL on your public host — it need not resolve, but must be identical in <code>iss</code>, metadata and the client's configuration.</div>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Setting</th><th>Current</th><th>Target</th></tr>
+<tr><td>Definition name</td><td><code>PartnerLink_OIDC_Test</code></td><td>Keep (name appears in metadata/JWKS URLs)</td></tr>
+<tr><td>Provider ID</td><td><code>https://localhost/sps/oauth/oauth20/15</code></td><td><code>https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test</code> (or another external URL, consistent everywhere)</td></tr>
+<tr><td>Grants</td><td>Authorization Code, plus ROPC (legacy)</td><td>Authorization Code (+ Refresh if needed). Disable ROPC and Implicit</td></tr>
+<tr><td>Access token lifetime</td><td>Default (≈3600 s)</td><td>5–15 min for API access; id_token 5–10 min</td></tr>
+<tr><td>Authorization code lifetime</td><td>Default</td><td>≤ 60 s, single use</td></tr>
+<tr><td>Rules</td><td>pre and post token JS attached</td><td>Reviewed, trace-free, fail-closed</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — changing the issuer</div>Changing Provider ID changes <code>iss</code> for every new token, so every relying party must be updated at the same time. Existing, unexpired tokens keep the old <code>iss</code>. Plan a cut-over window and keep access-token lifetimes short before the change.</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>JWT library error: <em>Invalid issuer</em></td><td><code>iss</code> = <code>https://localhost/...</code></td>
+<td><pre><code>cut -d. -f2 &lt;&lt;&lt;"$ID_TOKEN" | tr '_-' '/+' | base64 -d 2&gt;/dev/null | jq .iss</code></pre></td><td>Set Provider ID to the external URL; redeploy.</td></tr>
+<tr><td>ROPC still works</td><td>Grant enabled in the definition</td>
+<td><pre><code>curl -s -X POST https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/token \
+ -u "$CID:$SECRET" -d grant_type=password -d username=u -d password=p
+# expected after fix: {"error":"unsupported_grant_type"}</code></pre></td><td>Untick “Resource owner username password” in Grant types; deploy.</td></tr>
+<tr><td><code>unauthorized_client</code></td><td>Client not allowed that grant</td><td>Check client + definition grants</td><td>Enable the grant on the definition (not ROPC!).</td></tr>
+<tr><td>Tokens valid far too long</td><td>Default 3600 s access and long refresh</td><td>Decode <code>exp - iat</code></td><td>Reduce lifetimes; use refresh rotation.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>An <strong>Application</strong> (Custom application → OIDC) in the tenant. The issuer is fixed by the tenant: <code>https://&lt;tenant&gt;.verify.ibm.com/oidc/endpoint/default</code>, so the <code>localhost</code> class of bug cannot occur.</div>
+<div class="table-wrap"><table>
+<tr><th>API Protection Definition</th><th>Verify SaaS</th></tr>
+<tr><td>Definition name in URL</td><td>Not used — single issuer per tenant</td></tr>
+<tr><td>Provider ID</td><td>Tenant issuer (read-only)</td></tr>
+<tr><td>Grant types checkboxes</td><td>Application → Sign-on → Grant types (Authorization code, Client credentials, Refresh token, JWT bearer, Device flow)</td></tr>
+<tr><td>Token lifetimes</td><td>Application token settings (access/ID/refresh lifetimes)</td></tr>
+<tr><td>Pre/Post-token rules</td><td>Attribute mappings, custom claims and webhooks (Module 13)</td></tr>
+<tr><td>Token cache</td><td>Managed by service; introspection at <code>/oidc/endpoint/default/introspect</code></td></tr>
+</table></div>
+<p>Next: <a href="06-oauth-oidc-clients.html">Module 06 — OAuth/OIDC clients</a>.</p>
 </main>
 </body>
 </html>

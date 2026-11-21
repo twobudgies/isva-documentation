@@ -3,14 +3,138 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OAuth/OIDC Clients & PKCE — ISVA Docs</title>
+<title>06 · OAuth/OIDC Clients &amp; PKCE — ISVA Docs</title>
+<meta name="description" content="Registering partner_portal in ISVA: confidential vs public clients, strict redirect_uri matching and PKCE S256 enforcement.">
 <link rel="stylesheet" href="assets/site.css">
 <script type="module" src="assets/site.js"></script>
 </head>
-<body data-page="06" data-stub="true">
+<body data-page="06">
 <main>
-<h1>06 · OAuth/OIDC Clients & PKCE</h1>
-<div class="callout note"><div class="ttl">🚧 Coming soon</div>This module is scheduled on its feature branch. See <a href="progress.html">the progress tracker</a>.</div>
+<h1>06 · OAuth/OIDC Clients &amp; PKCE</h1>
+<p class="lead">How an application becomes known to <code>ciam</code>: client registration, the confidential/public distinction, why <code>redirect_uri</code> must match exactly, and how PKCE (<code>S256</code>) protects the authorization code.</p>
+<div id="toc"></div>
+
+<h2 id="zero">1. Zero-knowledge explanation</h2>
+<div class="callout beginner"><div class="ttl">📘 Beginner Concept — the guest list and the claim ticket</div>
+<p><strong>Client registration</strong> is the guest list: the bouncer (<code>ciam</code>) only serves apps that were registered, and only sends them to the address they registered. A <strong>confidential client</strong> can keep a secret (a server like <code>partner_portal_backend</code>); a <strong>public client</strong> cannot (a browser SPA or mobile app — anyone can read its code).</p>
+<p><strong>PKCE</strong> (“pixy”) is a claim ticket: when you drop off a coat you keep half of a torn ticket (<em>code_verifier</em>); the cloakroom keeps a fingerprint of it (<em>code_challenge</em>). Only the person holding the original half can collect the coat, even if someone steals the cloakroom slip (the authorization code).</p></div>
+<ul>
+<li><strong>client_id</strong>: public name, <code>&lt;partner_portal_clientid&gt;</code>. <strong>client_secret</strong>: password for confidential clients, sent only on the back channel.</li>
+<li><strong>redirect_uri</strong>: where the code is returned. Must be pre-registered and compared <em>exactly</em> (scheme, host, port, path, query) — no wildcards, no prefix matching.</li>
+<li><strong>PKCE</strong>: <code>code_challenge = BASE64URL(SHA256(code_verifier))</code>, method <code>S256</code>. <code>plain</code> is insecure and should be refused.</li>
+</ul>
+
+<h2 id="high">2. High-level architecture</h2>
+<figure class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Reg[Registration - done once in LMI]
+    R1[Client: partner_portal<br/>client_id + secret<br/>redirect_uri list<br/>confidential]
+  end
+  subgraph Runtime[Every login]
+    A[/authorize<br/>checks client_id + redirect_uri + code_challenge/]
+    T[/token<br/>checks secret + code_verifier + redirect_uri/]
+  end
+  R1 --> A --> T
+  A -- "mismatch" --> E1[[error: invalid redirect_uri / invalid_request]]
+  T -- "mismatch" --> E2[[invalid_client / invalid_grant]]
+</pre>
+<figcaption>Figure 6.1 — Where the client record is enforced</figcaption></figure>
+<div class="callout arch"><div class="ttl">🏗️ Architecture Deep Dive — defence in depth for the code</div>
+Even confidential clients should use PKCE today (OAuth 2.0 Security BCP, OAuth 2.1): <code>client_secret</code> authenticates the <em>backend</em>, PKCE binds the code to the <em>specific login transaction</em>, defeating code injection and interception.</div>
+
+<h2 id="low">3. Low-level technical sequence — authorization code with PKCE</h2>
+<figure class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant P as partner_portal
+  participant B as partner_portal_backend
+  participant C as ciam
+  P->>P: generate code_verifier (43-128 chars) and state, nonce
+  P->>P: code_challenge = BASE64URL(SHA256(code_verifier))
+  P-->>U: 302 https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=CID&scope=openid&state=S&nonce=N&code_challenge=H&code_challenge_method=S256
+  U->>C: GET /mga/sps/authsvc?... (S256 required)
+  alt PKCE missing or method=plain
+    C-->>U: 302 redirect_uri?error=invalid_request&error_description=code_challenge+required&state=S
+  else ok
+    C->>C: store code_challenge with the authorization code
+    C-->>U: 302 https://portal.example.com/cb?code=AbC123&state=S
+  end
+  U->>P: GET /cb?code=AbC123&state=S
+  P->>B: code + code_verifier (server-side session)
+  B->>C: POST /mga/sps/oauth/oauth20/token<br/>grant_type=authorization_code, code, redirect_uri, code_verifier, client_id, client_secret
+  C->>C: BASE64URL(SHA256(code_verifier)) equals stored code_challenge?
+  alt mismatch
+    C-->>B: 400 {"error":"invalid_grant"}
+  else match
+    C-->>B: 200 tokens
+  end
+</pre>
+<figcaption>Figure 6.2 — PKCE across the front and back channels</figcaption></figure>
+
+<h3>Generate a PKCE pair (for tests)</h3>
+<pre><code>VERIFIER=$(openssl rand -base64 48 | tr -d '=+/\n' | cut -c1-64)
+CHALLENGE=$(printf %s "$VERIFIER" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+echo "verifier=$VERIFIER"; echo "challenge=$CHALLENGE"
+
+# authorize (open in browser)
+echo "https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=&lt;partner_portal_clientid&gt;&amp;scope=openid&amp;state=abc&amp;nonce=xyz&amp;code_challenge=$CHALLENGE&amp;code_challenge_method=S256"
+
+# exchange
+curl -s -X POST https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/token \
+  -d grant_type=authorization_code -d code="$CODE" \
+  -d redirect_uri=https://portal.example.com/cb \
+  -d client_id=&lt;partner_portal_clientid&gt; -d client_secret="$SECRET" \
+  -d code_verifier="$VERIFIER"</code></pre>
+
+<h3>Registering the client in LMI (verify menu names)</h3>
+<ol>
+<li>Secure Access Control → API Protection → <em>Definitions</em> → <code>PartnerLink_OIDC_Test</code> → <em>Clients</em> → Add.</li>
+<li>Set <strong>Client ID</strong>, <strong>Client secret</strong> (long, random, stored in a vault), <strong>Client type = Confidential</strong>.</li>
+<li>Add <strong>Redirect URIs</strong>: exact HTTPS URLs, one per environment. Never <code>http://</code> (except <code>localhost</code> in dev) and never wildcards.</li>
+<li>Restrict allowed grant types/scopes (<code>openid</code>, plus only needed scopes).</li>
+<li>Enable PKCE requirement if your firmware exposes it; otherwise enforce in the pre-token/authorize rule (see <a href="09-infomap-mapping-rules.html">Module 09</a>).</li>
+<li>Deploy pending changes.</li>
+</ol>
+
+<h2 id="env">4. Environment deep dive</h2>
+<div class="table-wrap"><table>
+<tr><th>Item</th><th>Value</th><th>Audit note</th></tr>
+<tr><td>Client</td><td><code>partner_portal</code>, <code>&lt;partner_portal_clientid&gt;</code></td><td>Frontend initiates; secret must <strong>never</strong> be shipped to it</td></tr>
+<tr><td>Secret holder</td><td><code>partner_portal_backend</code></td><td>Store in a secrets manager; rotate on schedule</td></tr>
+<tr><td>Client type</td><td>Confidential</td><td>Correct</td></tr>
+<tr><td>Redirect URIs</td><td>Portal callback per environment</td><td>Verify exact match; no wildcards</td></tr>
+<tr><td>PKCE</td><td>Not enforced on <code>/authsvc</code> and <code>/authorize</code></td><td><strong>Finding #2</strong> — require <code>S256</code></td></tr>
+<tr><td>Step 4 URL</td><td><code>/mga/sps/oauth/oauth20/authorize?clientId=…&amp;scope=openid&amp;state=789</code></td><td>Parameter name <code>clientId</code> (as observed) must match what the runtime expects (<code>client_id</code> in the OAuth spec)</td></tr>
+</table></div>
+<div class="callout pitfall"><div class="ttl">⚠️ Security Pitfall — open redirect via loose matching</div>If the server accepts <code>redirect_uri</code> by prefix or ignores the query, an attacker registers nothing but crafts <code>https://portal.example.com/cb/../evil</code> or a sibling path, receives the code, and takes over the account. Strict exact matching plus PKCE closes this.</div>
+
+<h2 id="pitfalls">5. Security pitfalls &amp; troubleshooting playbook</h2>
+<div class="table-wrap"><table>
+<tr><th>Symptom</th><th>Root cause</th><th>Verify</th><th>Fix</th></tr>
+<tr><td>Browser shows “invalid redirect_uri” at <code>/authorize</code></td><td>URI not registered or differs (trailing slash, case, port)</td><td>HAR: copy <code>redirect_uri</code> from the first request, diff with LMI client list</td><td>Register the exact string.</td></tr>
+<tr><td><code>invalid_client</code> at <code>/token</code></td><td>Wrong secret or auth method (Basic vs body)</td>
+<td><pre><code>curl -s -u "$CID:$SECRET" -d grant_type=client_credentials https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/token</code></pre></td><td>Reset secret; use the method configured.</td></tr>
+<tr><td><code>invalid_grant</code> after adding PKCE</td><td><code>code_verifier</code> lost between front and back channel</td><td>Log (hashed) challenge at both ends</td><td>Store verifier server-side bound to the login session.</td></tr>
+<tr><td>Authorization succeeds <em>without</em> <code>code_challenge</code></td><td>PKCE not enforced (Finding #2)</td>
+<td><pre><code>curl -sI "https://test.partnerlink.enterprise.com/mga/sps/authsvc?client=$CID&amp;scope=openid&amp;state=1" | grep -i location
+# fixed behaviour: Location contains error=invalid_request</code></pre></td><td>Enforce S256 (rule or setting), reject <code>plain</code>.</td></tr>
+</table></div>
+
+<h2 id="saas-map">6. IBM Security Verify (SaaS) migration mapping</h2>
+<div class="callout saas"><div class="ttl">☁️ IBM Verify SaaS Equivalent</div>Admin console → Applications → Add application → <strong>Custom Application</strong> → Sign-on method <em>OpenID Connect 1.0</em>. Verify generates the client ID/secret and has options to require PKCE and proof of possession.</div>
+<div class="table-wrap"><table>
+<tr><th>ISVA client field</th><th>Verify SaaS</th></tr>
+<tr><td>client_id / client_secret</td><td>Generated on the Sign-on tab (secret shown once, rotate via UI/API)</td></tr>
+<tr><td>Confidential / public</td><td>“Require authentication for token endpoint” / public client (PKCE) option</td></tr>
+<tr><td>Redirect URIs</td><td>“Redirect URIs” list — exact match</td></tr>
+<tr><td>PKCE rule in JS</td><td>Built-in “Require PKCE” setting</td></tr>
+<tr><td>Scopes / consent</td><td>Application scopes and entitlements; optional consent policy</td></tr>
+<tr><td>Who may use app</td><td>Application → Entitlements (users/groups) + access policy</td></tr>
+</table></div>
+<p>Next: <a href="07-metadata-jwks-discovery.html">Module 07 — Metadata &amp; JWKS</a>.</p>
 </main>
 </body>
 </html>
