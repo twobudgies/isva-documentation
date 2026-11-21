@@ -18,6 +18,16 @@ All hostnames, client IDs and app IDs on this site are placeholders: <code>partn
 
 <div id="toc"></div>
 
+<h2 id="paths">Choose your path</h2>
+<div class="grid">
+<a class="card" href="01-iam-oidc-foundations.html"><b>🧭 I'm new to all of this</b><span>Read 01 → 02 → 03 in order, keep the <a href="glossary.html">glossary</a> open.</span></a>
+<a class="card" href="14-troubleshooting-har-playbook.html"><b>🚨 Something is broken right now</b><span>Open the triage tree in 14, then the <a href="cheatsheet.html">quick reference</a>.</span></a>
+<a class="card" href="12-security-audit-hardening.html"><b>🔒 I'm reviewing security</b><span>Read 12, then 06 (PKCE), 09 (rules) and 07 (edge/ACL).</span></a>
+<a class="card" href="13-verify-saas-migration.html"><b>☁️ I'm planning the migration</b><span>Read 13, with 11 (flow) and 05 (definitions) for context.</span></a>
+<a class="card" href="09-infomap-mapping-rules.html"><b>🧑‍💻 I maintain the JS rules</b><span>Read 08 → 10 → 09, then 12 for the fixes.</span></a>
+<a class="card" href="cheatsheet.html"><b>⚡ I need a URL or command</b><span>Endpoints, errors, headers, curl and pdadmin on one page.</span></a>
+</div>
+
 <h2 id="exec">1. Executive overview</h2>
 <div class="callout beginner"><div class="ttl">📘 Beginner Concept — the airport analogy</div>
 <p>Imagine an international airport. <strong>Passport control</strong> (the upstream identity provider <code>csl</code>) checks who you really are. The <strong>airline gate agent</strong> (the broker <code>ciam</code>) looks at your passport stamp and issues a <strong>boarding pass</strong> (tokens) that is valid for one specific flight (the application). The <strong>flight crew</strong> (<code>partner_portal_backend</code>) doesn't re-check your passport; it verifies the boarding pass's hologram (the digital signature) and lets you in. The security perimeter around the whole terminal is the CDN/WAF and reverse proxy.</p></div>
@@ -109,6 +119,8 @@ sequenceDiagram
 <a class="card" href="12-security-audit-hardening.html"><b>12 · Audit &amp; Hardening</b><span>Five findings and fixes.</span></a>
 <a class="card" href="13-verify-saas-migration.html"><b>13 · Migration</b><span>Legacy → Verify SaaS.</span></a>
 <a class="card" href="14-troubleshooting-har-playbook.html"><b>14 · Runbook</b><span>HAR, JWT, curl suite.</span></a>
+<a class="card" href="glossary.html"><b>Glossary</b><span>Every term, A–Z, filterable.</span></a>
+<a class="card" href="cheatsheet.html"><b>Quick Reference</b><span>Endpoints, errors, headers, commands.</span></a>
 </div>
 
 <h2 id="audit">4. Audit findings summary</h2>

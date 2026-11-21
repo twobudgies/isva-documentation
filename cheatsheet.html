@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quick Reference — ISVA Docs</title>
+<meta name="description" content="One-page cheat sheet: endpoints, headers and cookies, status-code decoder, OAuth errors, token lifetimes, curl and pdadmin commands.">
+<link rel="stylesheet" href="assets/site.css">
+<script type="module" src="assets/site.js"></script>
+</head>
+<body data-page="Q">
+<main>
+<h1>Quick Reference</h1>
+<p class="lead">Everything you reach for during an incident, on one page: endpoints, who answered which status code, OAuth errors, headers and cookies, recommended values, and copy-paste commands.</p>
+<div id="toc"></div>
+
+<h2 id="endpoints">Endpoints — legacy vs Verify SaaS</h2>
+<div class="table-wrap"><table>
+<tr><th>Purpose</th><th>Legacy ISVA (<code>ciam</code>) — <code>https://test.partnerlink.enterprise.com</code></th><th>Verify SaaS — <code>https://&lt;tenant&gt;.verify.ibm.com</code></th></tr>
+<tr><td>Start login</td><td><code>/mga/sps/authsvc?client=…&amp;scope=openid&amp;state=…</code></td><td><code>/oidc/endpoint/default/authorize</code></td></tr>
+<tr><td>Authorize</td><td><code>/mga/sps/oauth/oauth20/authorize</code></td><td><code>/oidc/endpoint/default/authorize</code></td></tr>
+<tr><td>Token</td><td><code>/mga/sps/oauth/oauth20/token</code></td><td><code>/oidc/endpoint/default/token</code></td></tr>
+<tr><td>Discovery</td><td><code>/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test</code></td><td><code>/oidc/endpoint/default/.well-known/openid-configuration</code></td></tr>
+<tr><td>JWKS</td><td><code>/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test</code></td><td><code>/oidc/endpoint/default/jwks</code></td></tr>
+<tr><td>UserInfo</td><td><code>/mga/sps/oauth/oauth20/userinfo</code></td><td><code>/oidc/endpoint/default/userinfo</code></td></tr>
+<tr><td>Introspect / revoke</td><td><code>/mga/sps/oauth/oauth20/introspect</code></td><td><code>/oidc/endpoint/default/introspect</code>, <code>/revoke</code></td></tr>
+<tr><td>Upstream login (<code>csl</code>)</td><td><code>/authb/login?appId=27096415…</code></td><td>Identity Source (managed)</td></tr>
+<tr><td>Admin</td><td>LMI <code>https://isva-uat01.internal.net:9443</code></td><td>Admin console + REST APIs</td></tr>
+</table></div>
+
+<h2 id="who-answered">Who answered? Status-code decoder</h2>
+<div class="table-wrap"><table>
+<tr><th>What you see</th><th>Layer</th><th>Typical cause</th><th>Go to</th></tr>
+<tr><td>403 HTML, <code>errors.edgesuite.net</code>, <code>Reference #…</code>, <code>Server: AkamaiGHost</code></td><td>Akamai edge</td><td>WAF rule / IP not allowlisted</td><td><a href="07-metadata-jwks-discovery.html">Module 07</a></td></tr>
+<tr><td>302 to <code>/pkmslogin.form</code> or login page on a public URL</td><td>WebSEAL</td><td>ACL denies <code>unauthenticated</code></td><td><a href="02-webseal-junctions.html">Module 02</a></td></tr>
+<tr><td>HTML error with <code>HPDIA…</code> / <code>HPDBE…</code> code</td><td>WebSEAL</td><td>Policy / junction / back-end problem</td><td><a href="02-webseal-junctions.html">Module 02</a></td></tr>
+<tr><td>JSON <code>{"error": …}</code></td><td>OAuth runtime</td><td>See OAuth errors below</td><td><a href="05-api-protection-definitions.html">Module 05</a></td></tr>
+<tr><td>500 / generic error at <code>/authsvc</code></td><td>Runtime / rule</td><td>JavaScript exception</td><td><a href="09-infomap-mapping-rules.html">Module 09</a></td></tr>
+<tr><td>200 but body is HTML, not JSON</td><td>Login or error page</td><td>ACL or WAF rewrote the response</td><td><a href="14-troubleshooting-har-playbook.html">Module 14</a></td></tr>
+<tr><td>Token rejected by the app</td><td>Validation in backend</td><td><code>iss</code> / <code>aud</code> / <code>exp</code> / signature / <code>nonce</code></td><td><a href="14-troubleshooting-har-playbook.html">Module 14</a></td></tr>
+</table></div>
+
+<h2 id="oauth-errors">OAuth / OIDC errors</h2>
+<div class="table-wrap"><table>
+<tr><th>Error</th><th>Where</th><th>Meaning</th><th>Usual fix</th></tr>
+<tr><td><code>invalid_request</code></td><td>authorize</td><td>Missing/invalid parameter (e.g. no <code>code_challenge</code>)</td><td>Add the parameter; check encoding</td></tr>
+<tr><td><code>unauthorized_client</code></td><td>authorize/token</td><td>Client not allowed this grant</td><td>Enable grant on the definition (not ROPC)</td></tr>
+<tr><td><code>access_denied</code></td><td>authorize</td><td>User or rule refused</td><td>Check pre-token rule / policy</td></tr>
+<tr><td><code>invalid_scope</code></td><td>authorize</td><td>Scope not allowed</td><td>Request only allowed scopes</td></tr>
+<tr><td><code>invalid_client</code></td><td>token</td><td>Bad <code>client_id</code>/<code>client_secret</code> or auth method</td><td>Reset secret; use Basic or body as configured</td></tr>
+<tr><td><code>invalid_grant</code></td><td>token</td><td>Code unknown/used/expired, <code>redirect_uri</code> or <code>code_verifier</code> mismatch</td><td>Exchange once within ~60 s with identical values</td></tr>
+<tr><td><code>unsupported_grant_type</code></td><td>token</td><td>Grant disabled (expected for ROPC after hardening)</td><td>Use authorization code</td></tr>
+<tr><td><code>invalid_token</code></td><td>userinfo/API</td><td>Expired, revoked or malformed token</td><td>Refresh or re-login</td></tr>
+</table></div>
+
+<h2 id="headers">Headers and cookies you will meet</h2>
+<div class="table-wrap"><table>
+<tr><th>Name</th><th>Set by</th><th>Meaning</th></tr>
+<tr><td><code>PD-S-SESSION-ID</code> (cookie)</td><td>WebSEAL</td><td>Authenticated session handle; must be <code>Secure; HttpOnly</code></td></tr>
+<tr><td><code>iv-user</code></td><td>WebSEAL junction</td><td>Authenticated user name</td></tr>
+<tr><td><code>iv-creds</code></td><td>WebSEAL junction</td><td>Base64 credential blob (groups, attributes)</td></tr>
+<tr><td><code>iv-groups</code>, <code>iv-remote-address</code>, <code>iv_jct</code></td><td>WebSEAL junction</td><td>Groups, client address, junction name (depends on junction flags)</td></tr>
+<tr><td><code>X-Forwarded-Host</code>, <code>X-Forwarded-For</code>, <code>True-Client-IP</code></td><td>Akamai / WebSEAL</td><td>Original host and client IP</td></tr>
+<tr><td><code>Authorization: Basic base64(id:secret)</code></td><td>Backend → <code>/token</code></td><td>Client authentication</td></tr>
+<tr><td><code>Authorization: Bearer &lt;access_token&gt;</code></td><td>Client → API</td><td>Presenting an access token</td></tr>
+</table></div>
+
+<h2 id="values">Recommended values</h2>
+<div class="table-wrap"><table>
+<tr><th>Setting</th><th>Recommendation</th></tr>
+<tr><td>Authorization code lifetime / use</td><td>≤ 60 seconds, single use</td></tr>
+<tr><td>Access token lifetime</td><td>5–15 minutes</td></tr>
+<tr><td>ID token lifetime</td><td>5–10 minutes</td></tr>
+<tr><td>Refresh token</td><td>Rotate on use; absolute lifetime (e.g. 8–24 h for web)</td></tr>
+<tr><td>PKCE</td><td>Required, <code>S256</code> only</td></tr>
+<tr><td><code>state</code> / <code>nonce</code></td><td>≥ 128 bits random, per request and per leg, single use</td></tr>
+<tr><td>JWT algorithm</td><td>Pin to <code>RS256</code> (or <code>ES256</code>); reject <code>none</code> and HMAC with public keys</td></tr>
+<tr><td>JWKS cache</td><td>1–24 h; refetch once on unknown <code>kid</code> (rate-limited)</td></tr>
+<tr><td>Clock skew allowance</td><td>≤ 60 seconds</td></tr>
+</table></div>
+
+<h2 id="curl">curl one-liners</h2>
+<pre><code># Is discovery public and correct?
+curl -s https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/metadata/PartnerLink_OIDC_Test | jq '{issuer,jwks_uri,token_endpoint,code_challenge_methods_supported}'
+
+# Is JWKS reachable from THIS host? (egress IP matters)
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test
+
+# Which layer answered?
+curl -sI https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/jwks/PartnerLink_OIDC_Test | egrep -i '^(HTTP|server|location|set-cookie)'
+
+# Exchange a code (back channel)
+curl -s -X POST https://test.partnerlink.enterprise.com/mga/sps/oauth/oauth20/token \
+  -d grant_type=authorization_code -d code="$CODE" -d redirect_uri="$REDIRECT" \
+  -d client_id="$CID" -d client_secret="$SECRET" -d code_verifier="$VERIFIER"
+
+# Decode a JWT part (1=header, 2=payload)
+jwt() { cut -d. -f"$2" &lt;&lt;&lt;"$1" | tr '_-' '/+' | awk '{l=length($0)%4; if(l==2)$0=$0"=="; else if(l==3)$0=$0"="; print}' | base64 -d 2&gt;/dev/null | jq .; }
+
+# PKCE pair
+V=$(openssl rand -base64 48 | tr -d '=+/\n' | cut -c1-64)
+C=$(printf %s "$V" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+
+# Count '?' in a redirect Location (expect 1)
+curl -sI "$URL" | grep -i '^location:' | tr -cd '?' | wc -c
+
+# Verify SaaS discovery
+curl -s https://TENANT.verify.ibm.com/oidc/endpoint/default/.well-known/openid-configuration | jq .</code></pre>
+
+<h2 id="pdadmin">pdadmin essentials</h2>
+<pre><code>pdadmin -a sec_master -p '********'
+pdadmin sec_master&gt; server list
+pdadmin sec_master&gt; server task default-webseald-isva-uat01 show /mga      # junction details
+pdadmin sec_master&gt; object list /WebSEAL/isva-uat01-default/mga/sps/oauth/oauth20
+pdadmin sec_master&gt; acl list
+pdadmin sec_master&gt; acl show unauth_public
+pdadmin sec_master&gt; acl modify unauth_public set unauthenticated Tr
+pdadmin sec_master&gt; acl attach &lt;object&gt; unauth_public
+pdadmin sec_master&gt; pop show &lt;pop-name&gt;</code></pre>
+<p>ACL permission letters: <code>T</code> traverse · <code>r</code> read · <code>x</code> execute · <code>m</code> modify · <code>l</code> list · <code>d</code> delete · <code>c</code> control · <code>g</code> password-valid · <code>a</code> attach.</p>
+
+<h2 id="claims">Token claims to validate</h2>
+<div class="table-wrap"><table>
+<tr><th>Claim</th><th>Check</th></tr>
+<tr><td><code>iss</code></td><td>Equals the issuer from discovery (no <code>localhost</code>)</td></tr>
+<tr><td><code>aud</code></td><td>Contains your <code>client_id</code></td></tr>
+<tr><td><code>exp</code>, <code>iat</code>, <code>nbf</code></td><td>Not expired; issued in the past (± skew)</td></tr>
+<tr><td><code>nonce</code></td><td>Equals the value you sent</td></tr>
+<tr><td><code>sub</code></td><td>Stable identifier; same across ISVA and Verify to avoid duplicate users</td></tr>
+<tr><td><code>acr</code> / <code>amr</code></td><td>Authentication strength / methods used (confirm MFA happened)</td></tr>
+<tr><td>Signature</td><td>Verified with the JWKS key whose <code>kid</code> matches the header</td></tr>
+</table></div>
+
+<h2 id="placeholders">Placeholder names used on this site</h2>
+<div class="table-wrap"><table>
+<tr><th>Placeholder</th><th>Role</th></tr>
+<tr><td><code>partner_portal</code> / <code>&lt;partner_portal_clientid&gt;</code></td><td>Client frontend app and its client ID</td></tr>
+<tr><td><code>partner_portal_backend</code></td><td>Confidential backend that exchanges codes and validates JWTs</td></tr>
+<tr><td><code>ciam</code></td><td>Identity broker / authorization server on ISVA</td></tr>
+<tr><td><code>csl</code></td><td>Upstream identity provider (password + MFA)</td></tr>
+<tr><td><code>PartnerLink_OIDC_Test</code></td><td>API Protection Definition</td></tr>
+<tr><td><code>InfoMap_partnerLoginRedirect.js</code>, <code>partnerauthn_pre_token_generation.js</code>, <code>partnerauthn_post_token_generation.js</code></td><td>The three mapping rules</td></tr>
+</table></div>
+<p>Terms unfamiliar? See the <a href="glossary.html">glossary</a>.</p>
+</main>
+</body>
+</html>

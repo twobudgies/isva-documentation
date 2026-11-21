@@ -15,6 +15,8 @@ export const PAGES = [
   { id: '12', file: '12-security-audit-hardening.html', title: 'Security Audit & Hardening', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
   { id: '13', file: '13-verify-saas-migration.html', title: 'Migration to Verify SaaS', phase: 'Phase 4 — E2E, Security & Migration', branch: 'feat/phase4-e2e-security-migration', status: 'done' },
   { id: '14', file: '14-troubleshooting-har-playbook.html', title: 'Troubleshooting & HAR Playbook', phase: 'Operations', branch: 'feat/troubleshooting-and-qa', status: 'done' },
+  { id: 'G', file: 'glossary.html', title: 'Glossary (A–Z)', phase: 'Reference', branch: 'feat/ref-glossary-cheatsheet', status: 'done' },
+  { id: 'Q', file: 'cheatsheet.html', title: 'Quick Reference', phase: 'Reference', branch: 'feat/ref-glossary-cheatsheet', status: 'done' },
   { id: 'P', file: 'progress.html', title: 'Progress Tracker', phase: 'Operations', branch: 'feat/site-scaffold-and-nav', status: 'done' },
 ];
 
@@ -50,7 +52,7 @@ function buildSidebar() {
     const h = el('h4', { 'data-group': g }, g); sb.append(h);
     for (const p of PAGES.filter(x => x.phase === g)) {
       const a = el('a', { class: 'nav' + (p.file === cur.file ? ' active' : ''), href: p.file, 'data-search': (p.id + ' ' + p.title + ' ' + (p.keywords || '')).toLowerCase() },
-        `${p.id === 'P' || p.id === '00' ? '' : p.id + ' · '}${p.title}`);
+        `${/^\d\d$/.test(p.id) && p.id !== '00' ? p.id + ' · ' : ''}${p.title}`);
       sb.append(a);
     }
   }
@@ -168,7 +170,7 @@ async function runSearch(q) {
   box.innerHTML = scored.length ? scored.map(({ e }) => {
     const t = e.text; const i = Math.max(0, t.toLowerCase().indexOf(terms[0]) - 40);
     let sn = esc(t.slice(i, i + 130)); terms.forEach(w => { sn = sn.replace(new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>'); });
-    return `<a class="res" href="${e.p.file}${e.hid ? '#' + e.hid : ''}"><b>${e.p.id === 'P' || e.p.id === '00' ? '' : e.p.id + ' · '}${e.p.title}</b><span>${esc(e.heading)}</span><small>…${sn}…</small></a>`;
+    return `<a class="res" href="${e.p.file}${e.hid ? '#' + e.hid : ''}"><b>${/^\d\d$/.test(e.p.id) && e.p.id !== '00' ? e.p.id + ' · ' : ''}${e.p.title}</b><span>${esc(e.heading)}</span><small>…${sn}…</small></a>`;
   }).join('') : '<div class="nores" style="display:block">No results. Try fewer or different words.</div>';
 }
 
@@ -200,6 +202,8 @@ const PAGE_INDEX = {
   '13-verify-saas-migration.html': 'migration saas verify tenant identity sources webhooks attribute mapping access policies',
   '14-troubleshooting-har-playbook.html': 'troubleshooting har curl invalid_grant iss mismatch 403 302 jwt debug',
   'progress.html': 'progress todo status tracker',
+  'glossary.html': 'glossary terms definitions acronyms',
+  'cheatsheet.html': 'cheat sheet quick reference endpoints errors headers curl pdadmin',
 };
 
 async function renderMermaid() {
@@ -270,7 +274,7 @@ function addCopyButtons() {
 
 function fillProgress() {
   const bar = document.getElementById('overallBar'); const txt = document.getElementById('overallTxt');
-  const mods = PAGES.filter(p => /^\d+$/.test(p.id) && p.id !== '00');
+  const mods = PAGES.filter(p => /^\d\d$/.test(p.id) && p.id !== '00');
   const done = mods.filter(p => p.status === 'done').length;
   if (bar) bar.style.width = Math.round(done / mods.length * 100) + '%';
   if (txt) txt.textContent = `${done} of ${mods.length} learning modules complete`;
