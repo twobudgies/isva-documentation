@@ -45,7 +45,7 @@ a{color:var(--brand)}
 #themeBtn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:4px 10px;cursor:pointer}
 main{margin-left:var(--side);padding:28px 28px 60px;max-width:calc(var(--side) + 1100px)}
 main>*{max-width:1040px;min-width:0}
-main{overflow-wrap:anywhere}
+main{overflow-wrap:break-word}
 html,body{overflow-x:hidden}
 .table-wrap pre,.table-wrap code{overflow-wrap:normal}
 h1{font-size:2rem;line-height:1.25;margin:.2em 0 .4em}
@@ -107,18 +107,21 @@ figure.diagram{margin:16px 0}
   h1{font-size:1.6rem}
 }
 
-/* Multi-column playbook tables: fixed, predictable column widths; code wraps inside cells */
-.table-wrap table:has(th:nth-child(4)){table-layout:fixed;min-width:760px}
-.table-wrap table:has(th:nth-child(4)) th:nth-child(1){width:20%}
-.table-wrap table:has(th:nth-child(4)) th:nth-child(2){width:22%}
-.table-wrap table:has(th:nth-child(4)) th:nth-child(3){width:36%}
-.table-wrap table:has(th:nth-child(4)) th:nth-child(4){width:22%}
-.table-wrap table:has(th:nth-child(5)){min-width:900px}
-.table-wrap table:has(th:nth-child(5)) th:nth-child(1){width:6%}
-.table-wrap table:has(th:nth-child(5)) th:nth-child(2){width:16%}
-.table-wrap table:has(th:nth-child(5)) th:nth-child(3){width:30%}
-.table-wrap table:has(th:nth-child(5)) th:nth-child(4){width:24%}
-.table-wrap table:has(th:nth-child(5)) th:nth-child(5){width:24%}
-.table-wrap td pre{margin:0;white-space:pre-wrap;word-break:break-all;font-size:.74rem;padding:8px 10px}
+/* Tables: JS (site.js tagTables) adds a layout class based on the first header */
+.table-wrap td code,.table-wrap td pre{word-break:break-all}
+.table-wrap td pre{margin:0;white-space:pre-wrap;font-size:.74rem;padding:8px 10px}
 .table-wrap td pre button{display:none}
-.table-wrap td{overflow-wrap:anywhere;word-break:normal}
+.table-wrap table.pb4,.table-wrap table.pb5,.table-wrap table.steps{table-layout:fixed}
+.table-wrap table.pb4{min-width:780px}
+.table-wrap table.pb4 th:nth-child(1){width:20%}.table-wrap table.pb4 th:nth-child(2){width:22%}
+.table-wrap table.pb4 th:nth-child(3){width:36%}.table-wrap table.pb4 th:nth-child(4){width:22%}
+.table-wrap table.pb5{min-width:980px}
+.table-wrap table.pb5 th:nth-child(1){width:6%}.table-wrap table.pb5 th:nth-child(2){width:16%}
+.table-wrap table.pb5 th:nth-child(3){width:18%}.table-wrap table.pb5 th:nth-child(4){width:34%}
+.table-wrap table.pb5 th:nth-child(5){width:26%}
+.table-wrap table.steps{min-width:980px}
+.table-wrap table.steps th:nth-child(1){width:5%}.table-wrap table.steps th:nth-child(2){width:15%}
+.table-wrap table.steps th:nth-child(3){width:32%}.table-wrap table.steps th:nth-child(4){width:24%}
+.table-wrap table.steps th:nth-child(5){width:24%}
+.table-wrap table.numfirst th:first-child,.table-wrap table.numfirst td:first-child{width:48px;white-space:nowrap}
+.table-wrap table.acl{min-width:900px}
