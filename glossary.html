@@ -51,6 +51,8 @@
 <div class="gl-item"><dt id="kid">kid</dt><dd>Key ID in a JWT header identifying which JWKS key verifies the signature.</dd></div>
 <div class="gl-item"><dt id="lmi">LMI — Local Management Interface</dt><dd>Admin web console and REST API of the appliance (port 9443). Changes are staged until deployed.<small><a href="04-lmi-deployment-ops.html">Module 04</a></small></dd></div>
 <div class="gl-item"><dt id="mapping-rule">Mapping rule</dt><dd>Server-side JavaScript (Rhino) hook that customises authentication or token generation.<small><a href="09-infomap-mapping-rules.html">Module 09</a></small></dd></div>
+<div class="gl-item"><dt id="sts">STS — Security Token Service</dt><dd>The ISVA/Federation component that issues and consumes SAML/OIDC/OAuth tokens and normalises identities into the STSUU. Federation mapping rules run inside it.<small><a href="09-infomap-mapping-rules.html#rule-types">Module 09</a></small></dd></div>
+<div class="gl-item"><dt id="phase">Rule phase (AUTHORIZE / TOKEN)</dt><dd>Which endpoint invocation a pre/post-token mapping rule is running for: creating the authorization code at <code>/authorize</code>, or issuing tokens at <code>/token</code>. Checks must be phase-aware.<small><a href="09-infomap-mapping-rules.html#rule-order">Module 09</a></small></dd></div>
 <div class="gl-item"><dt id="mfa">MFA / step-up</dt><dd>Requiring an additional factor, either at login or when a sensitive resource demands stronger assurance.</dd></div>
 <div class="gl-item"><dt id="nonce">nonce</dt><dd>Random value tied to an authentication request and copied into the ID token to prevent replay.</dd></div>
 <div class="gl-item"><dt id="oauth">OAuth 2.0</dt><dd>Framework for delegated authorization using tokens.</dd></div>

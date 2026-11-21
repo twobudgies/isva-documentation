@@ -119,6 +119,17 @@ pdadmin sec_master&gt; acl attach &lt;object&gt; unauth_public
 pdadmin sec_master&gt; pop show &lt;pop-name&gt;</code></pre>
 <p>ACL permission letters: <code>T</code> traverse · <code>r</code> read · <code>x</code> execute · <code>m</code> modify · <code>l</code> list · <code>d</code> delete · <code>c</code> control · <code>g</code> password-valid · <code>a</code> attach.</p>
 
+<h2 id="rule-order">Mapping-rule execution order (one login)</h2>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>Endpoint</th><th>Rule</th><th>Phase</th></tr>
+<tr><td>1</td><td><code>/mga/sps/authsvc</code></td><td><code>InfoMap_partnerLoginRedirect.js</code></td><td>OUT (redirect to <code>csl</code>)</td></tr>
+<tr><td>2</td><td><code>/oauth/oauth20/authorize</code></td><td><code>partnerauthn_pre_token_generation.js</code></td><td>AUTHORIZE</td></tr>
+<tr><td>3</td><td><code>/authorize</code> (code stored)</td><td><code>partnerauthn_post_token_generation.js</code></td><td>AUTHORIZE</td></tr>
+<tr><td>4</td><td><code>/oauth/oauth20/token</code></td><td><code>partnerauthn_pre_token_generation.js</code></td><td>TOKEN</td></tr>
+<tr><td>5</td><td><code>/token</code> (tokens stored)</td><td><code>partnerauthn_post_token_generation.js</code></td><td>TOKEN</td></tr>
+</table></div>
+<p>An extra InfoMap RETURN execution occurs only if the policy validates the return in a second step. Details and a trace test: <a href="09-infomap-mapping-rules.html#rule-order">Module 09</a>. Phase behaviour is marked VERIFY.</p>
+
 <h2 id="claims">Token claims to validate</h2>
 <div class="table-wrap"><table>
 <tr><th>Claim</th><th>Check</th></tr>
